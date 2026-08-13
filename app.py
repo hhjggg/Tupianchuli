@@ -49,6 +49,8 @@ def _init():
     st.session_state.setdefault("uploaded_mode", False)
     st.session_state.setdefault("export_dir", EXPORT_DIR_DEFAULT)
     st.session_state.setdefault("uploaded_key", None)
+    st.session_state.setdefault("uploaded_paths", {})
+    st.session_state.setdefault("merged_path", None)
     for d in (EXPORT_DIR_DEFAULT, UPLOAD_DIR, PHOTO_CACHE):
         os.makedirs(d, exist_ok=True)
 
@@ -60,50 +62,76 @@ def _upload_token(f):
     return f"{f.name}|{getattr(f, 'size', 0)}"
 
 
+def _save_upload(f, prefix):
+    """把上传文件落盘到 .upload/ 目录，返回本地路径。"""
+    name = os.path.basename(f.name) or f"{prefix}.xlsx"
+    path = os.path.join(UPLOAD_DIR, f"{prefix}_{name}")
+    with open(path, "wb") as fp:
+        fp.write(f.getbuffer())
+    return path
+
+
 def sidebar():
     st.sidebar.header("① 数据表选择")
     mode = st.sidebar.radio("选择方式", ["使用本地文件", "上传文件"], key="src_mode")
-    sheet1_path = sheet2_path = None
+    sheet1_path = None
+    done_files = []   # 处理完成的直供订单表（1 个）
+    raw_files = []    # 未处理的直供订单照片导出表（多个）
     uploaded_mode = False
     if mode == "使用本地文件":
         p1 = st.sidebar.text_input("单号表路径", value=DEFAULT_ORDER_XLSX, key="p1")
-        p2 = st.sidebar.text_input("直供订单照片导出表路径", value=DEFAULT_PHOTO_XLSX, key="p2")
-        if p1 and p2 and os.path.exists(p1) and os.path.exists(p2):
-            sheet1_path, sheet2_path = p1, p2
+        p_done = st.sidebar.text_input("直供订单表·处理完成（1 个路径）", value=DEFAULT_PHOTO_XLSX, key="p_done")
+        p_raw = st.sidebar.text_area("直供订单表·未处理（每行一个路径）", value="", key="p_raw", height=110)
+        raw_paths = [ln.strip() for ln in (p_raw or "").splitlines() if ln.strip()]
+        all_paths = ([p1] if p1 else []) + ([p_done] if p_done else []) + raw_paths
+        if p1 and all_paths and all(os.path.exists(q) for q in all_paths):
+            sheet1_path = p1
+            done_files = [p_done]
+            raw_files = raw_paths
         else:
             st.sidebar.warning("路径无效，请检查文件是否存在")
     else:
         f1 = st.sidebar.file_uploader("上传 单号表 (.xlsx)", type=["xlsx"], key="f1")
-        f2 = st.sidebar.file_uploader("上传 直供订单照片导出表 (.xlsx)", type=["xlsx"], key="f2")
-        if f1 and f2:
+        f_done = st.sidebar.file_uploader("上传 直供订单表·处理完成（1 个）", type=["xlsx"], key="f_done")
+        f_raw = st.sidebar.file_uploader("上传 直供订单表·未处理（可多选）", type=["xlsx"],
+                                         accept_multiple_files=True, key="f_raw")
+        if f1 and f_done and f_raw:
             uploaded_mode = True
-            sheet1_path = os.path.join(UPLOAD_DIR, os.path.basename(f1.name) or "order.xlsx")
-            sheet2_path = os.path.join(UPLOAD_DIR, os.path.basename(f2.name) or "photo.xlsx")
-            token = f"{_upload_token(f1)}|{_upload_token(f2)}"
+            os.makedirs(UPLOAD_DIR, exist_ok=True)
+            sheet1_path = os.path.join(UPLOAD_DIR, "order.xlsx")
+            token = "|".join([_upload_token(f1), _upload_token(f_done)] + [_upload_token(f) for f in f_raw])
             if st.session_state.uploaded_key != token:
-                os.makedirs(UPLOAD_DIR, exist_ok=True)
                 with open(sheet1_path, "wb") as fp:
                     fp.write(f1.getbuffer())
-                with open(sheet2_path, "wb") as fp:
-                    fp.write(f2.getbuffer())
+                done_files = [_save_upload(f_done, "done")]
+                raw_files = [_save_upload(f, "raw") for f in f_raw]
                 st.session_state.uploaded_key = token
+                st.session_state.uploaded_paths = {"done": done_files, "raw": raw_files}
+            else:
+                saved = st.session_state.uploaded_paths
+                done_files = saved.get("done", [])
+                raw_files = saved.get("raw", [])
     st.sidebar.header("② 输出设置")
     export_dir = st.sidebar.text_input("图片保存目录", value=st.session_state.export_dir, key="export_dir_input")
     st.session_state.export_dir = (export_dir or EXPORT_DIR_DEFAULT).strip() or EXPORT_DIR_DEFAULT
     st.sidebar.caption("保存命名：订单编号_照片序号.扩展名")
     st.sidebar.button("解析并匹配数据", type="primary", width="stretch", key="btn_parse")
-    return sheet1_path, sheet2_path, uploaded_mode
+    return sheet1_path, done_files, raw_files, uploaded_mode
 
 
-def do_parse(sheet1_path, sheet2_path):
-    if not sheet1_path or not sheet2_path or not os.path.exists(sheet1_path) or not os.path.exists(sheet2_path):
-        st.error("请先正确选择两个数据表文件")
+def do_parse(sheet1_path, done_files, raw_files):
+    all_files = (done_files or []) + (raw_files or [])
+    paths_ok = sheet1_path and all_files and all(
+        q and os.path.exists(q) for q in [sheet1_path] + all_files)
+    if not paths_ok:
+        st.error("请先正确选择单号表，以及至少一个直供订单表文件（处理完成或未处理）")
         return False
     try:
         with st.spinner("正在解析单号表（订单编号）..."):
             order_list = xr.read_order_numbers(sheet1_path)
-        with st.spinner("正在流式解析直供订单照片导出表（约 1 分钟）..."):
-            result = xr.parse_direct_table(sheet2_path, set(order_list))
+        merged_path = os.path.join(UPLOAD_DIR, "合并直供订单表.xlsx")
+        with st.spinner("正在处理并拼接直供订单表（只保留 16 位三方单号且含照片的行）..."):
+            result = xr.merge_direct_tables(all_files, set(order_list), merged_path)
     except Exception as e:
         st.error(f"解析失败：{e}")
         return False
@@ -113,15 +141,17 @@ def do_parse(sheet1_path, sheet2_path):
     no_photo = [o for o in order_list if o in (seen - set(photo_orders))]
     unmatched = [o for o in order_list if o not in seen]
     st.session_state.update(
-        parse_done=True, sheet1_path=sheet1_path, sheet2_path=sheet2_path,
+        parse_done=True, sheet1_path=sheet1_path, merged_path=merged_path,
         orders=with_photo, order_urls=photo_orders,
         orders_no_photo=no_photo, orders_unmatched=unmatched,
         stats={"total": len(order_list), "with_photo": len(with_photo),
                "no_photo": len(no_photo), "unmatched": len(unmatched),
                "matched_rows": result["matched_rows"], "total_rows": result["total_rows"],
+               "kept_rows": result["kept_rows"], "per_file": result["per_file"],
                "len_counter": result["len_counter"]},
         curr_index=0, curr_photo=0, marked=set(), saved={},
     )
+    return True
 
 
 def get_order_photos(order):
@@ -166,28 +196,44 @@ def advance_after_save(n_urls, n_orders, idx):
 
 def main():
     _init()
-    sheet1_path, sheet2_path, uploaded_mode = sidebar()
+    sheet1_path, done_files, raw_files, uploaded_mode = sidebar()
 
     st.title("🖼️ 国补订单照片处理工具")
-    st.caption("流程：选择两张数据表 → 解析匹配 → 逐单处理图片 → 保存 / 标记已上传")
+    st.caption("流程：选择单号表 + 直供订单表（处理完成1个/未处理多个）→ 处理拼接 → 匹配 → 逐单处理图片 → 保存 / 标记已上传")
 
     if st.session_state.btn_parse:
-        if do_parse(sheet1_path, sheet2_path):
+        if do_parse(sheet1_path, done_files, raw_files):
             st.session_state.uploaded_mode = uploaded_mode
             st.rerun()
 
     if not st.session_state.parse_done:
-        st.info("👈 请在左侧选择单号表与直供订单照片导出表，然后点击“解析并匹配数据”。")
+        st.info("👈 请在左侧选择单号表与直供订单表（处理完成 1 个 + 未处理可多选），然后点击“解析并匹配数据”。")
         return
 
     stats = st.session_state.stats
-    m = st.columns(5)
+    m = st.columns(6)
     m[0].metric("单号表订单总数", stats.get("total", 0))
     m[1].metric("✅ 匹配且有照片", stats.get("with_photo", 0))
     m[2].metric("匹配但无照片", stats.get("no_photo", 0))
     m[3].metric("未匹配订单", stats.get("unmatched", 0))
-    m[4].metric("直供表数据行", stats.get("total_rows", 0))
+    m[4].metric("直供表总行数", stats.get("total_rows", 0))
+    m[5].metric("生成文件行数", stats.get("kept_rows", 0))
     st.caption(f"单号表：{st.session_state.sheet1_path}　|　图片输出：{st.session_state.export_dir}")
+
+    merged_path = st.session_state.get("merged_path")
+    if merged_path and os.path.exists(merged_path):
+        with open(merged_path, "rb") as fp:
+            st.download_button("⬇️ 下载生成的新文件（合并直供订单表.xlsx）", data=fp.read(),
+                               file_name=os.path.basename(merged_path),
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_merged")
+        st.caption(f"📦 生成文件位置：{merged_path}")
+
+    per_file = stats.get("per_file") or []
+    if per_file:
+        with st.expander(f"各直供表文件处理统计（{len(per_file)} 个）"):
+            for pf in per_file:
+                st.write(f"📄 {pf['name']}：原始 {pf['total']} 行 → 保留（16位且有照片）{pf['kept']} 行")
 
     with st.expander(f"未匹配订单（{len(st.session_state.orders_unmatched)} 个，不在直供表三方单号中）"):
         st.write("、".join(map(str, st.session_state.orders_unmatched)) or "无")

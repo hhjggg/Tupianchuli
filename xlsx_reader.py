@@ -21,6 +21,8 @@ NO_PHOTO_MARK = "暂无国补照片"
 # 直供表列位（按单元格引用字母定位）
 COL_ORDER_NO = "C"   # 三方单号
 COL_PHOTO = "G"      # 国补照片链接
+HEADERS = ["订单号", "下单时间", "三方单号", "是否国补订单", "政策地", "承运商", "国补照片链接"]
+ALL_COLS = list("ABCDEFG")
 
 
 def _cell_value(c):
@@ -92,6 +94,7 @@ def parse_direct_table(xlsx_path, order_set):
         matched_rows : 匹配行数
         total_rows   : 数据总行数（不含表头）
         len_counter  : 三方单号长度分布
+        filtered_rows: 符合条件的行（三方单号=16位 且 有照片），7列值列表
     """
     zf = zipfile.ZipFile(xlsx_path)
     f = zf.open(_resolve_sheet_xml(zf))
@@ -100,6 +103,7 @@ def parse_direct_table(xlsx_path, order_set):
     matched_rows = 0
     total_rows = 0
     len_counter = Counter()
+    filtered_rows = []
     try:
         for _ev, el in ET.iterparse(f, events=("end",)):
             if el.tag == NS + "row":
@@ -116,16 +120,21 @@ def parse_direct_table(xlsx_path, order_set):
                 ts = str(ts).strip()
                 if ts:
                     len_counter[len(ts)] += 1
-                if len(ts) == 16 and ts in order_set:
+                if len(ts) != 16:
+                    el.clear()
+                    continue
+                link = vals.get(COL_PHOTO)
+                s = str(link).strip() if link is not None else ""
+                has_photo = bool(s) and s != NO_PHOTO_MARK
+                if has_photo:
+                    filtered_rows.append([vals.get(c, "") if vals.get(c) is not None else "" for c in ALL_COLS])
+                if ts in order_set:
                     matched_rows += 1
                     seen.add(ts)
-                    link = vals.get(COL_PHOTO)
-                    if link is not None:
-                        s = str(link).strip()
-                        if s and s != NO_PHOTO_MARK:
-                            photo_orders.setdefault(ts, [])
-                            if s not in photo_orders[ts]:
-                                photo_orders[ts].append(s)
+                    if has_photo:
+                        photo_orders.setdefault(ts, [])
+                        if s not in photo_orders[ts]:
+                            photo_orders[ts].append(s)
                 el.clear()
     finally:
         f.close()
@@ -136,6 +145,59 @@ def parse_direct_table(xlsx_path, order_set):
         "matched_rows": matched_rows,
         "total_rows": total_rows,
         "len_counter": len_counter,
+        "filtered_rows": filtered_rows,
+    }
+
+
+def merge_direct_tables(file_list, order_set, output_path):
+    """处理并拼接多个直供订单表，生成新文件。
+
+    规则：只保留“三方单号=16位 且 有照片”的行；多个文件逐行合并；
+    生成的新 xlsx 写入 output_path，同时汇总匹配信息供后续匹配使用。
+    返回 dict：photo_orders / seen_orders / matched_rows / total_rows /
+               len_counter / kept_rows / per_file / output_path
+    """
+    from openpyxl import Workbook
+    photo_orders = {}
+    seen = set()
+    matched_rows = 0
+    total_rows = 0
+    len_counter = Counter()
+    all_rows = []
+    per_file = []
+    for f in file_list:
+        res = parse_direct_table(f, order_set)
+        per_file.append({
+            "name": os.path.basename(str(f)),
+            "total": res["total_rows"],
+            "kept": len(res["filtered_rows"]),
+        })
+        total_rows += res["total_rows"]
+        matched_rows += res["matched_rows"]
+        seen |= res["seen_orders"]
+        len_counter += res["len_counter"]
+        for ts, urls in res["photo_orders"].items():
+            photo_orders.setdefault(ts, [])
+            for u in urls:
+                if u not in photo_orders[ts]:
+                    photo_orders[ts].append(u)
+        all_rows.extend(res["filtered_rows"])
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet("sheet1")
+    ws.append(HEADERS)
+    for r in all_rows:
+        ws.append(r)
+    wb.save(output_path)
+    return {
+        "photo_orders": photo_orders,
+        "seen_orders": seen,
+        "matched_rows": matched_rows,
+        "total_rows": total_rows,
+        "len_counter": len_counter,
+        "kept_rows": len(all_rows),
+        "per_file": per_file,
+        "output_path": output_path,
     }
 
 
