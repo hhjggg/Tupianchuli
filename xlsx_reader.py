@@ -164,6 +164,7 @@ def merge_direct_tables(file_list, order_set, output_path):
     total_rows = 0
     len_counter = Counter()
     all_rows = []
+    seen_rows = set()          # 合并时按整行去重
     per_file = []
     for f in file_list:
         res = parse_direct_table(f, order_set)
@@ -181,7 +182,11 @@ def merge_direct_tables(file_list, order_set, output_path):
             for u in urls:
                 if u not in photo_orders[ts]:
                     photo_orders[ts].append(u)
-        all_rows.extend(res["filtered_rows"])
+        for r in res["filtered_rows"]:
+            key = tuple(r)
+            if key not in seen_rows:      # 完全相同的行只保留一次
+                seen_rows.add(key)
+                all_rows.append(r)
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("sheet1")
