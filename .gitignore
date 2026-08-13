@@ -1,0 +1,17 @@
+# ============ 隐私数据：含订单收货人/电话/地址，禁止上传 ============
+新建 XLSX 工作表.xlsx
+直供订单照片导出*.xlsx
+*.xlsx
+
+# ============ 运行时目录与缓存 ============
+.photo_cache/
+.upload/
+export_images/
+__pycache__/
+*.pyc
+
+# ============ 通用 ============
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
