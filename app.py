@@ -16,7 +16,7 @@ import image_tools as it
 import xlsx_reader as xr
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-EXPORT_DIR_DEFAULT = os.path.join(ROOT, "export_images")
+EXPORT_DIR_DEFAULT = os.path.join(os.path.expanduser("~"), "Desktop")  # 默认保存到系统桌面
 UPLOAD_DIR = os.path.join(ROOT, ".upload")
 PHOTO_CACHE = os.path.join(ROOT, ".photo_cache")
 DEFAULT_ORDER_XLSX = os.path.join(ROOT, "新建 XLSX 工作表.xlsx")
