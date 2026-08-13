@@ -80,30 +80,33 @@ def sidebar():
     uploaded_mode = False
     if mode == "使用本地文件":
         p1 = st.sidebar.text_input("单号表路径", value=DEFAULT_ORDER_XLSX, key="p1")
-        p_done = st.sidebar.text_input("直供订单表·处理完成（1 个路径）", value=DEFAULT_PHOTO_XLSX, key="p_done")
+        p_done = st.sidebar.text_input("直供订单表·处理完成（可选，1 个路径）", value=DEFAULT_PHOTO_XLSX, key="p_done")
         p_raw = st.sidebar.text_area("直供订单表·未处理（每行一个路径）", value="", key="p_raw", height=110)
         raw_paths = [ln.strip() for ln in (p_raw or "").splitlines() if ln.strip()]
-        all_paths = ([p1] if p1 else []) + ([p_done] if p_done else []) + raw_paths
-        if p1 and all_paths and all(os.path.exists(q) for q in all_paths):
+        direct_paths = ([p_done] if p_done else []) + raw_paths
+        all_paths = ([p1] if p1 else []) + direct_paths
+        if p1 and direct_paths and all(os.path.exists(q) for q in all_paths):
             sheet1_path = p1
-            done_files = [p_done]
+            done_files = [p_done] if p_done else []
             raw_files = raw_paths
         else:
             st.sidebar.warning("路径无效，请检查文件是否存在")
     else:
         f1 = st.sidebar.file_uploader("上传 单号表 (.xlsx)", type=["xlsx"], key="f1")
-        f_done = st.sidebar.file_uploader("上传 直供订单表·处理完成（1 个）", type=["xlsx"], key="f_done")
+        f_done = st.sidebar.file_uploader("上传 直供订单表·处理完成（可选，1 个）", type=["xlsx"], key="f_done")
         f_raw = st.sidebar.file_uploader("上传 直供订单表·未处理（可多选）", type=["xlsx"],
                                          accept_multiple_files=True, key="f_raw")
-        if f1 and f_done and f_raw:
+        if f1 and (f_done or f_raw):
             uploaded_mode = True
             os.makedirs(UPLOAD_DIR, exist_ok=True)
             sheet1_path = os.path.join(UPLOAD_DIR, "order.xlsx")
-            token = "|".join([_upload_token(f1), _upload_token(f_done)] + [_upload_token(f) for f in f_raw])
+            token = "|".join([_upload_token(f1)]
+                             + ([_upload_token(f_done)] if f_done else [])
+                             + [_upload_token(f) for f in f_raw])
             if st.session_state.uploaded_key != token:
                 with open(sheet1_path, "wb") as fp:
                     fp.write(f1.getbuffer())
-                done_files = [_save_upload(f_done, "done")]
+                done_files = [_save_upload(f_done, "done")] if f_done else []
                 raw_files = [_save_upload(f, "raw") for f in f_raw]
                 st.session_state.uploaded_key = token
                 st.session_state.uploaded_paths = {"done": done_files, "raw": raw_files}
