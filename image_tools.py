@@ -52,6 +52,25 @@ def load_image(path):
     return img.convert("RGB")
 
 
+def rotate_image(img, angle):
+    """按角度旋转（expand=True 保持完整内容）。"""
+    return img.rotate(int(angle) % 360, expand=True, resample=Image.BICUBIC)
+
+
+def crop_image(img, box):
+    """按 box {x,y,w,h}（像素）裁剪；box 为空或无效时返回原图。"""
+    if not box:
+        return img
+    try:
+        x = max(0, min(int(box.get("x", 0)), img.width - 1))
+        y = max(0, min(int(box.get("y", 0)), img.height - 1))
+        w = max(1, min(int(box.get("w", 0)), img.width - x))
+        h = max(1, min(int(box.get("h", 0)), img.height - y))
+    except (TypeError, ValueError):
+        return img
+    return img.crop((x, y, x + w, y + h))
+
+
 def _crop(img, cl, cr, ct, cb):
     w, h = img.size
     left = int(w * cl / 100.0)

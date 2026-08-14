@@ -3,7 +3,9 @@
 
 运行: cd deepseek && streamlit run app.py
 """
+import base64
 import glob
+import io
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,6 +14,7 @@ import streamlit as st
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from crop_component import image_crop
 import image_tools as it
 import xlsx_reader as xr
 
@@ -22,15 +25,12 @@ PHOTO_CACHE = os.path.join(ROOT, ".photo_cache")
 DEFAULT_ORDER_XLSX = os.path.join(ROOT, "新建 XLSX 工作表.xlsx")
 DEFAULT_PHOTO_XLSX = (glob.glob(os.path.join(ROOT, "直供订单照片导出*.xlsx")) or [""])[0]
 
-PARAM_DEFAULTS = {
-    "rot": 0, "flip_h": False, "flip_v": False, "scale": 100,
-    "bri": 1.0, "con": 1.0, "sat": 1.0, "shp": 0, "blr": 0,
-    "gray": False, "inv": False, "bin": False, "thr": 128,
-    "cl": 0, "cr": 0, "ct": 0, "cb": 0,
-    "wm": "", "wmsz": 40, "wmop": 40, "wmpos": "右下",
-    "fmt": "JPG", "q": 90,
-}
-POSITIONS = ["左上", "中上", "右上", "左中", "居中", "右中", "左下", "中下", "右下"]
+
+def _img_dataurl(img, fmt="JPEG"):
+    """PIL 图片 → base64 data URL（传给裁剪组件）。"""
+    buf = io.BytesIO()
+    img.save(buf, fmt)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
 def _init():
@@ -51,6 +51,8 @@ def _init():
     st.session_state.setdefault("uploaded_key", None)
     st.session_state.setdefault("uploaded_paths", {})
     st.session_state.setdefault("merged_path", None)
+    st.session_state.setdefault("crop_box", {})
+    st.session_state.setdefault("crop_reset", {})
     for d in (EXPORT_DIR_DEFAULT, UPLOAD_DIR, PHOTO_CACHE):
         os.makedirs(d, exist_ok=True)
 
@@ -310,46 +312,38 @@ def main():
     pf = f"{order}|{ph}"
     wc, pc = st.columns([1, 1], gap="large")
     with wc:
-        st.subheader("🛠️ 图片处理")
-        with st.expander("旋转 / 翻转 / 缩放", expanded=True):
-            st.slider("旋转角度 (°)", -180, 180, 0, key=f"rot_{pf}")
-            st.checkbox("水平翻转", key=f"flip_h_{pf}")
-            st.checkbox("垂直翻转", key=f"flip_v_{pf}")
-            st.slider("缩放比例 (%)", 10, 300, 100, key=f"scale_{pf}")
-        with st.expander("裁剪（按百分比）", expanded=False):
-            st.slider("裁剪左侧 (%)", 0, 90, 0, key=f"cl_{pf}")
-            st.slider("裁剪右侧 (%)", 0, 90, 0, key=f"cr_{pf}")
-            st.slider("裁剪上侧 (%)", 0, 90, 0, key=f"ct_{pf}")
-            st.slider("裁剪下侧 (%)", 0, 90, 0, key=f"cb_{pf}")
-        with st.expander("亮度 / 对比度 / 饱和度 / 锐化", expanded=False):
-            st.slider("亮度", 0.2, 2.5, 1.0, 0.05, key=f"bri_{pf}")
-            st.slider("对比度", 0.2, 2.5, 1.0, 0.05, key=f"con_{pf}")
-            st.slider("饱和度", 0.0, 2.5, 1.0, 0.05, key=f"sat_{pf}")
-            st.slider("锐化强度", 0, 100, 0, key=f"shp_{pf}")
-        with st.expander("滤镜 / 二值化", expanded=False):
-            st.slider("高斯模糊半径", 0, 20, 0, key=f"blr_{pf}")
-            st.checkbox("灰度", key=f"gray_{pf}")
-            st.checkbox("反色", key=f"inv_{pf}")
-            bin_on = st.checkbox("二值化", key=f"bin_{pf}")
-            st.slider("二值化阈值", 0, 255, 128, disabled=not bin_on, key=f"thr_{pf}")
-        with st.expander("文字水印", expanded=False):
-            st.text_input("水印文字（留空则不添加）", key=f"wm_{pf}")
-            st.slider("字号", 10, 200, 40, key=f"wmsz_{pf}")
-            st.slider("透明度 (%)", 5, 100, 40, key=f"wmop_{pf}")
-            st.selectbox("位置", POSITIONS, index=POSITIONS.index("右下"), key=f"wmpos_{pf}")
-        with st.expander("输出格式", expanded=False):
-            st.selectbox("格式", ["JPG", "PNG", "WEBP"], key=f"fmt_{pf}")
-            st.slider("JPG/WEBP 质量", 30, 100, 90, key=f"q_{pf}")
+        st.subheader("🛠️ 图片处理（旋转 + 裁剪）")
+        rot = st.slider("旋转角度 (°)", -180, 180, 0, 1, key=f"rot_{pf}")
+        rotated = it.rotate_image(orig, rot)
 
-    params = {k: st.session_state.get(f"{k}_{pf}", d) for k, d in PARAM_DEFAULTS.items()}
-    processed = it.apply_transforms(orig, params)
+        st.markdown("##### ✂️ 裁剪（参考微信截图）")
+        st.caption("单击图片**等比例放大** ｜ 按 **C** 键进入裁剪 ｜ 拖拽画选区 ｜ "
+                   "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
+        reset_flag = st.session_state.crop_reset.get((order, ph), 0)
+        crop_res = image_crop(img=_img_dataurl(rotated), width=460, reset=reset_flag, key=f"cropc_{pf}")
+        # 消费组件交互结果（避免 rerun 后重复触发）
+        last_res_key = ("crop_res", order, ph)
+        last_val = st.session_state.get(last_res_key)
+        if crop_res and crop_res != last_val:
+            st.session_state[last_res_key] = crop_res
+            if crop_res.get("confirmed") and crop_res.get("crop"):
+                st.session_state.crop_box[(order, ph)] = crop_res["crop"]
+                st.toast("✅ 已应用裁剪")
+                st.rerun()
+            if crop_res.get("canceled"):
+                st.session_state.crop_box.pop((order, ph), None)
+                st.toast("已取消裁剪")
+                st.rerun()
+
+    crop_box = st.session_state.crop_box.get((order, ph))
+    processed = it.crop_image(rotated, crop_box) if crop_box else rotated
 
     with pc:
         st.subheader("👁️ 预览")
         c1, c2 = st.columns(2)
-        c1.caption("原图")
-        c1.image(orig, width="stretch")
-        c2.caption("处理后")
+        c1.caption(f"旋转后（{rot}°）" + ("，已裁剪" if crop_box else ""))
+        c1.image(rotated, width="stretch")
+        c2.caption("最终结果")
         c2.image(processed, width="stretch")
 
     st.divider()
@@ -357,27 +351,24 @@ def main():
     bc = st.columns([2, 1, 1, 1])
     auto_next = bc[0].checkbox("保存后自动跳到下一张/下一单", value=True, key="auto_next")
     if bc[1].button("💾 保存当前图片" + ("（已保存·可覆盖）" if done else ""), type="primary", width="stretch"):
-        fmt_ = params["fmt"]
-        ext = it.FORMAT_EXT.get(fmt_, "jpg")
         outdir = st.session_state.export_dir
         os.makedirs(outdir, exist_ok=True)
-        name = f"{order}_{ph + 1}.{ext}"
+        name = f"{order}_{ph + 1}.jpg"
         path = os.path.join(outdir, name)
-        it.save_image(processed, path, fmt_, params["q"])
+        it.save_image(processed, path, "JPG", 90)
         st.session_state.saved[(order, ph)] = path
         st.toast(f"✅ 已保存：{name}")
         if auto_next:
             advance_after_save(len(urls), len(orders), idx)
             st.rerun()
-    if bc[2].button("↩️ 重置本图参数", width="stretch"):
-        for k, v in PARAM_DEFAULTS.items():
-            st.session_state[f"{k}_{pf}"] = v
+    if bc[2].button("↩️ 重置本图（旋转/裁剪）", width="stretch"):
+        st.session_state[f"rot_{pf}"] = 0
+        st.session_state.crop_box.pop((order, ph), None)
+        st.session_state.crop_reset[(order, ph)] = reset_flag + 1
         st.rerun()
     if bc[3].button("⬇️ 下载此图", width="stretch"):
-        fmt_ = params["fmt"]
-        st.download_button("点击下载", data=it.image_to_bytes(processed, fmt_, params["q"]),
-                           file_name=f"{order}_{ph + 1}.{it.FORMAT_EXT.get(fmt_, 'jpg')}",
-                           key=f"dl_{pf}")
+        st.download_button("点击下载", data=it.image_to_bytes(processed, "JPG", 90),
+                           file_name=f"{order}_{ph + 1}.jpg", key=f"dl_{pf}")
 
     st.divider()
     mrow = st.columns([2, 3])

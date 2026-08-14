@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@2.0.0/dist/index.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Microsoft YaHei", system-ui, sans-serif; }
+  #wrap { position: relative; display: inline-block; user-select: none; cursor: zoom-in; line-height: 0; }
+  #img { display: block; max-width: 100%; }
+  #mask {
+    position: absolute; inset: 0; background: rgba(0,0,0,.5);
+    display: none; cursor: crosshair; z-index: 2; touch-action: none;
+  }
+  #box {
+    position: absolute; border: 2px solid #10b3f8; display: none;
+    cursor: move; z-index: 3; background: rgba(16,179,248,.04);
+    touch-action: none;
+  }
+  #box .grid { position: absolute; inset: 0; pointer-events: none; opacity: .75;
+    background-image:
+      linear-gradient(to right, rgba(16,179,248,.85) 1px, transparent 1px),
+      linear-gradient(to right, rgba(16,179,248,.85) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(16,179,248,.85) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(16,179,248,.85) 1px, transparent 1px);
+    background-size: 33.333% 100%, 66.666% 100%, 100% 33.333%, 100% 66.666%;
+    background-position: left top; background-repeat: no-repeat;
+  }
+  #info {
+    position: absolute; top: -24px; left: -2px; background: #10b3f8; color: #fff;
+    font-size: 12px; padding: 1px 6px; border-radius: 3px; pointer-events: none;
+    white-space: nowrap; line-height: 1.4;
+  }
+  #box .h { position: absolute; width: 9px; height: 9px; background: #fff;
+    border: 1px solid #10b3f8; }
+  #box .h.nw { left: -5px; top: -5px; cursor: nwse-resize; }
+  #box .h.n  { left: 50%; top: -5px; margin-left: -4px; cursor: ns-resize; }
+  #box .h.ne { right: -5px; top: -5px; cursor: nesw-resize; }
+  #box .h.e  { top: 50%; right: -5px; margin-top: -4px; cursor: ew-resize; }
+  #box .h.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+  #box .h.s  { left: 50%; bottom: -5px; margin-left: -4px; cursor: ns-resize; }
+  #box .h.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+  #box .h.w  { top: 50%; left: -5px; margin-top: -4px; cursor: ew-resize; }
+  #tip {
+    position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.62); color: #fff; font-size: 12px; padding: 4px 10px;
+    border-radius: 4px; pointer-events: none; white-space: nowrap; line-height: 1.3;
+    z-index: 4;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <img id="img" alt="">
+  <div id="mask"></div>
+  <div id="box">
+    <div class="grid"></div>
+    <div id="info"></div>
+    <span class="h nw"></span><span class="h n"></span><span class="h ne"></span>
+    <span class="h e"></span><span class="h se"></span><span class="h s"></span>
+    <span class="h sw"></span><span class="h w"></span>
+  </div>
+  <div id="tip"></div>
+</div>
+<script>
+(function () {
+  var wrap = document.getElementById('wrap'), img = document.getElementById('img'),
+      mask = document.getElementById('mask'), boxEl = document.getElementById('box'),
+      infoEl = document.getElementById('info'), tipEl = document.getElementById('tip');
+
+  var ZOOMS = [1, 1.5, 2, 3];
+  var zoomIdx = 0, zoom = 1, baseWidth = 460;
+  var cropMode = false, box = null;
+  var drawing = false, drag = null, startX = 0, startY = 0;
+  var lastImg = null, lastReset = null;
+
+  function scale() {
+    var r = img.getBoundingClientRect();
+    return img.naturalWidth ? r.width / img.naturalWidth : 1;
+  }
+  function send(payload) {
+    var v = { zoom: zoom, crop: null, confirmed: false, canceled: false };
+    if (payload) { for (var k in payload) v[k] = payload[k]; }
+    if (window.Streamlit) Streamlit.setComponentValue(v);
+  }
+  function fitImage() {
+    var w = baseWidth * zoom;
+    img.style.width = w + 'px';
+    img.style.height = 'auto';
+    if (window.Streamlit) Streamlit.setFrameHeight(wrap.offsetHeight + 4);
+  }
+  function clampBox() {
+    var W = mask.offsetWidth, H = mask.offsetHeight;
+    box.x = Math.max(0, Math.min(box.x, W - 4));
+    box.y = Math.max(0, Math.min(box.y, H - 4));
+    box.w = Math.max(4, Math.min(box.w, W - box.x));
+    box.h = Math.max(4, Math.min(box.h, H - box.y));
+  }
+  function applyBox() {
+    boxEl.style.left = box.x + 'px';  boxEl.style.top = box.y + 'px';
+    boxEl.style.width = box.w + 'px'; boxEl.style.height = box.h + 'px';
+    var s = scale();
+    infoEl.textContent = Math.max(1, Math.round(box.w / s)) + ' × ' + Math.max(1, Math.round(box.h / s));
+  }
+  function enterCrop() {
+    cropMode = true;
+    box = null; boxEl.style.display = 'none';
+    mask.style.display = 'block';
+    tipEl.textContent = '拖拽画框 · Enter 确认 · Esc 取消 · 方向键微调 · 双击确认';
+  }
+  function confirmCrop() {
+    if (!box || box.w < 4 || box.h < 4) { tipEl.textContent = '请先拖拽画出裁剪区域！'; return; }
+    var s = scale();
+    var crop = {
+      x: Math.round(box.x / s), y: Math.round(box.y / s),
+      w: Math.round(box.w / s), h: Math.round(box.h / s)
+    };
+    send({ crop: crop, confirmed: true });
+    cropMode = false; mask.style.display = 'none'; boxEl.style.display = 'none';
+    tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+  }
+  function cancelCrop() {
+    cropMode = false; mask.style.display = 'none'; boxEl.style.display = 'none'; box = null;
+    tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+    send({ crop: null, canceled: true });
+  }
+
+  // 点击图片：等比例放大（循环 100% → 150% → 200% → 300%）
+  img.addEventListener('click', function (e) {
+    if (cropMode) return;
+    zoomIdx = (zoomIdx + 1) % ZOOMS.length;
+    zoom = ZOOMS[zoomIdx];
+    fitImage();
+    send({ zoom: zoom });
+  });
+
+  // 快捷键：C 进入裁剪；裁剪时 Enter 确认 / Esc 取消 / 方向键微调
+  document.addEventListener('keydown', function (e) {
+    if (!cropMode) {
+      if (e.key === 'c' || e.key === 'C') { e.preventDefault(); enterCrop(); }
+      return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); cancelCrop(); }
+    else if (e.key === 'Enter') { e.preventDefault(); confirmCrop(); }
+    else if (e.key.indexOf('Arrow') === 0) {
+      e.preventDefault();
+      if (!box) return;
+      var st = e.shiftKey ? 10 : 1;
+      if (e.key === 'ArrowLeft')  box.x -= st;
+      if (e.key === 'ArrowRight') box.x += st;
+      if (e.key === 'ArrowUp')    box.y -= st;
+      if (e.key === 'ArrowDown')  box.y += st;
+      clampBox(); applyBox();
+    }
+  });
+
+  // 拖拽：画框 / 移动选区 / 拖动边角手柄调整大小
+  mask.addEventListener('mousedown', function (e) {
+    if (!cropMode) return;
+    drawing = true; drag = 'draw';
+    var r = mask.getBoundingClientRect();
+    startX = e.clientX - r.left; startY = e.clientY - r.top;
+    box = { x: startX, y: startY, w: 0, h: 0 };
+    boxEl.style.display = 'block';
+    applyBox();
+  });
+  boxEl.addEventListener('mousedown', function (e) {
+    if (!cropMode) return;
+    e.stopPropagation();
+    drawing = true; drag = 'move';
+    startX = e.clientX; startY = e.clientY;
+  });
+  Array.prototype.forEach.call(boxEl.querySelectorAll('.h'), function (h) {
+    h.addEventListener('mousedown', function (e) {
+      if (!cropMode) return;
+      e.stopPropagation();
+      drawing = true;
+      drag = h.className.split(' ')[1];
+      startX = e.clientX; startY = e.clientY;
+    });
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (!drawing || !cropMode) return;
+    var r = mask.getBoundingClientRect();
+    var mx = e.clientX - r.left, my = e.clientY - r.top;
+    if (drag === 'draw') {
+      box.x = Math.min(startX, mx); box.y = Math.min(startY, my);
+      box.w = Math.abs(mx - startX); box.h = Math.abs(my - startY);
+    } else if (drag === 'move') {
+      box.x += e.clientX - startX; box.y += e.clientY - startY;
+      startX = e.clientX; startY = e.clientY;
+    } else {
+      var bx = box.x, by = box.y, bw = box.w, bh = box.h;
+      var right = bx + bw, bottom = by + bh;
+      if (drag.indexOf('w') >= 0) { var nx = e.clientX - r.left; bx = Math.min(nx, right); bw = Math.abs(right - nx); }
+      if (drag.indexOf('e') >= 0) { bw = Math.max(4, e.clientX - r.left - bx); }
+      if (drag.indexOf('n') >= 0) { var ny = e.clientY - r.top; by = Math.min(ny, bottom); bh = Math.abs(bottom - ny); }
+      if (drag.indexOf('s') >= 0) { bh = Math.max(4, e.clientY - r.top - by); }
+      box.x = bx; box.y = by; box.w = bw; box.h = bh;
+    }
+    clampBox(); applyBox();
+  });
+  document.addEventListener('mouseup', function () { drawing = false; drag = null; });
+  mask.addEventListener('dblclick', function (e) { if (cropMode) confirmCrop(); });
+
+  // Streamlit 组件生命周期
+  Streamlit.setComponentReady();
+  Streamlit.addEventListener(Streamlit.RENDER_EVENT, function (ev) {
+    var data = ev.detail.args || {};
+    if (data.img && data.img !== lastImg) {
+      lastImg = data.img;
+      img.src = data.img;
+      if (data.width) baseWidth = data.width;
+      zoom = 1; zoomIdx = 0;
+      cropMode = false; box = null;
+      mask.style.display = 'none'; boxEl.style.display = 'none';
+      tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+    }
+    if (data.reset !== lastReset) {
+      lastReset = data.reset;
+      cropMode = false; box = null;
+      mask.style.display = 'none'; boxEl.style.display = 'none';
+      tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+    }
+  });
+  img.onload = function () { fitImage(); };
+})();
+</script>
+</body>
+</html>
+
+
