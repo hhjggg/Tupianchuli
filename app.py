@@ -318,6 +318,9 @@ def image_editor(order, ph, orig):
     st.markdown("**双击图片放大** · 按 **X** 键裁剪 · 拖拽画选区 · "
                 "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
     prev_rot = st.session_state.get("rot_state", {}).get(pf, 0)
+    # 处理重置标志（在 slider 实例化前同步 drot，避免 widget 修改报错）
+    if st.session_state.pop(f"reset_flag_{pf}", False):
+        st.session_state[f"drot_{pf}"] = 0
     st.session_state.setdefault(f"drot_{pf}", prev_rot)
     rot = st.slider("旋转角度 (°)", -180, 180, step=90, key=f"drot_{pf}")
     # 旋转：增量应用到当前图（效果直接显示）
@@ -384,9 +387,13 @@ def image_editor(order, ph, orig):
             st.session_state.saved[(order, ph)] = f"{fname_s}.{ext}"
             st.toast(f"✅ 已下载：{fname_s}.{ext}")
             st.rerun()
-    if b2.button("↩️ 重置（旋转/裁剪）", width="stretch",
-                 on_click=_reset_editor_cb, args=(order, ph, orig)):
-        pass
+    if b2.button("↩️ 重置（旋转/裁剪）", width="stretch"):
+        st.session_state["proc"][pf] = orig.copy()
+        st.session_state["rot_state"][pf] = 0
+        st.session_state["crop_reset"][pf] = st.session_state.get("crop_reset", {}).get(pf, 0) + 1
+        st.session_state[f"reset_flag_{pf}"] = True
+        st.session_state.pop(f"ecrop_res_{order}_{ph}", None)
+        st.rerun()
     if b3.button("✖️ 关闭", width="stretch"):
         st.session_state.editor_open = None
         st.rerun()
