@@ -388,19 +388,22 @@ def main():
     st.subheader("🛠️ 图片处理")
     st.caption("**双击上方照片缩略图**进入二级编辑（原图 + 旋转 + 微信截图式裁剪）")
 
-    st.markdown("##### 处理完成图")
-    st.image(processed, width="stretch")
-
     st.divider()
+    fcol1, fcol2 = st.columns(2)
+    fcol1.text_input("保存文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}")
+    fmt_ = fcol2.selectbox("保存格式", ["PNG", "JPG", "WEBP"], index=0, key=f"fmt_{pf}")
+
     done = (order, ph) in st.session_state.saved
     bc = st.columns([2, 1, 1, 1])
     auto_next = bc[0].checkbox("保存后自动跳到下一张/下一单", value=True, key="auto_next")
     if bc[1].button("💾 保存当前图片" + ("（已保存·可覆盖）" if done else ""), type="primary", width="stretch"):
         outdir = st.session_state.export_dir
         os.makedirs(outdir, exist_ok=True)
-        name = f"{order}_{ph + 1}.jpg"
+        fname_s = (st.session_state.get(f"fname_{pf}") or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
+        ext = it.FORMAT_EXT.get(fmt_, "png")
+        name = f"{fname_s}.{ext}"
         path = os.path.join(outdir, name)
-        it.save_image(processed, path, "JPG", 90)
+        it.save_image(processed, path, fmt_, 95)
         st.session_state.saved[(order, ph)] = path
         st.toast(f"✅ 已保存：{name}")
         if auto_next:
@@ -412,8 +415,9 @@ def main():
         st.session_state.crop_reset[pf] = reset_flag + 1
         st.rerun()
     if bc[3].button("⬇️ 下载此图", width="stretch"):
-        st.download_button("点击下载", data=it.image_to_bytes(processed, "JPG", 90),
-                           file_name=f"{order}_{ph + 1}.jpg", key=f"dl_{pf}")
+        fname_s = (st.session_state.get(f"fname_{pf}") or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
+        st.download_button("点击下载", data=it.image_to_bytes(processed, fmt_, 95),
+                           file_name=f"{fname_s}.{it.FORMAT_EXT.get(fmt_, 'png')}", key=f"dl_{pf}")
 
     # 二级编辑页面（双击照片缩略图后弹出）
     edit_key = st.session_state.get("editor_open")

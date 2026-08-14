@@ -157,7 +157,10 @@ def save_image(img, path, fmt="JPG", quality=90):
     pf = PIL_FORMAT.get(str(fmt).upper(), "JPEG")
     if pf in ("JPEG", "WEBP") and img.mode != "RGB":
         img = img.convert("RGB")
-    img.save(path, pf, quality=int(quality))
+    if pf == "PNG":
+        img.save(path, pf)
+    else:
+        img.save(path, pf, quality=int(quality))
 
 
 def image_to_bytes(img, fmt="JPG", quality=90):
