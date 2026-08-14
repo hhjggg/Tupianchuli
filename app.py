@@ -357,14 +357,20 @@ def main():
         return
 
     pf = f"{order}|{ph}"
-    st.subheader("🛠️ 图片处理")
-    st.caption("**双击左侧预览图**进入二级编辑页（等比放大 + 旋转 + 微信截图式裁剪）")
 
-    # 主预览组件：双击 → 打开二级编辑页
-    prev_res = image_crop(img=_img_dataurl(orig), width=460, dbl_opens=True, key=f"prev_{pf}")
+    # 👁️ 预览图（位于“图片处理”上方）：双击 → 打开二级编辑页
+    st.markdown("#### 👁️ 预览图（双击进入二级编辑）")
+    prev_res = image_crop(img=_img_dataurl(orig), width=480, dbl_opens=True, key=f"prev_{pf}")
     if isinstance(prev_res, dict) and prev_res.get("open_editor"):
-        st.session_state.editor_open = pf
-        st.rerun()
+        open_ts = prev_res.get("open_ts")
+        last_open_key = f"prev_open_{order}_{ph}"
+        if open_ts is not None and open_ts != st.session_state.get(last_open_key):
+            st.session_state[last_open_key] = open_ts
+            st.session_state.editor_open = pf
+            st.rerun()
+
+    st.subheader("🛠️ 图片处理")
+    st.caption("在下方预览处理结果；双击上方预览图可再次进入二级编辑")
 
     rot = st.session_state.get(f"rot_{pf}", 0)
     crop_box = st.session_state.crop_box.get(pf)

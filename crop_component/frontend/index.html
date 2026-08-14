@@ -173,7 +173,7 @@ var Streamlit = (function () {
   // 双击：预览模式 → 打开二级编辑页；编辑模式 → 确认裁剪
   img.addEventListener('dblclick', function (e) {
     if (cropMode) return;
-    if (dblOpens) { send({ open_editor: true }); }
+    if (dblOpens) { send({ open_editor: true, open_ts: Date.now() }); }
     else { confirmCrop(); }
   });
 
