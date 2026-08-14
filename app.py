@@ -269,6 +269,22 @@ def _next_order_cb(idx, n):
     st.session_state["order_jump"] = nidx
 
 
+def _jump_to_order():
+    """按订单号直达（on_click 回调，在 widget 实例化前执行）。"""
+    target = (st.session_state.get("jump_order_no") or "").strip()
+    orders = st.session_state.get("orders", [])
+    if target and target in orders:
+        idx = orders.index(target)
+        st.session_state.curr_index = idx
+        st.session_state.curr_photo = 0
+        st.session_state["order_jump"] = idx
+        st.session_state.editor_open = None
+        st.session_state[f"photo_sel_{target}"] = 0
+        st.session_state["jump_msg"] = f"✅ 已跳转到订单 {target}"
+    else:
+        st.session_state["jump_msg"] = f"⚠️ 订单号 {target or '（空）'} 不存在或不在可处理订单中"
+
+
 def _fname_change_cb(pf):
     """文件名输入框值变化时，立即提交到独立键（on_change 回调）。"""
     st.session_state[f"fname_val_{pf}"] = st.session_state.get(f"fname_{pf}", "").strip()
@@ -434,6 +450,8 @@ def main():
     st.divider()
     hc = st.columns([4, 1, 1])
     hc[0].markdown(f"### 📋 订单 {idx + 1} / {len(orders)}")
+    hc[0].caption("当前订单号（可复制）：")
+    hc[0].code(str(order))
     if hc[1].button("‹ 上一单", key="prev_order", width="stretch",
                     on_click=_prev_order_cb, args=(idx, len(orders))):
         pass
@@ -449,6 +467,18 @@ def main():
         st.session_state.curr_index = sel
         st.session_state.curr_photo = 0
         st.rerun()
+
+    # 订单号直达（可复制/粘贴订单号，存在则跳转，不存在则提示）
+    jc = st.columns([3, 1])
+    jc[0].text_input("订单号直达（输入或粘贴订单号，点「跳转」）", key="jump_order_no")
+    if jc[1].button("🔍 跳转", width="stretch", on_click=_jump_to_order):
+        pass
+    jmsg = st.session_state.get("jump_msg")
+    if jmsg:
+        if jmsg.startswith("✅"):
+            st.success(jmsg)
+        else:
+            st.warning(jmsg)
 
 
 
