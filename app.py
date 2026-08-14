@@ -219,12 +219,10 @@ def image_editor(order, ph, orig):
     st.markdown("**双击图片放大** · 按 **C** 键裁剪 · 拖拽画选区 · "
                 "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
     rot = st.slider("旋转角度 (°)", -180, 180, st.session_state.get(f"rot_{pf}", 0), 1, key=f"drot_{pf}")
-    rotated = it.rotate_image(orig, rot)
     crop_box = st.session_state.get("crop_box", {}).get(pf)
     reset_flag = st.session_state.get("crop_reset", {}).get(pf, 0)
-    # 已裁剪：效果直接显示在原图上
-    display = it.crop_image(rotated, crop_box) if crop_box else rotated
-    crop_res = image_crop(img=_img_dataurl(display), width=720, dbl_opens=False,
+    # 裁剪基于原图进行；显示/下载结果 = 先裁切、再旋转裁切后的图片
+    crop_res = image_crop(img=_img_dataurl(orig), width=720, dbl_opens=False,
                           reset=reset_flag, key=f"ecrop_{pf}")
     if isinstance(crop_res, dict):
         last_key = f"ecrop_res_{order}_{ph}"
@@ -239,6 +237,9 @@ def image_editor(order, ph, orig):
                 st.session_state.crop_box.pop(pf, None)
                 st.toast("已取消裁剪")
                 st.rerun()
+    # 处理顺序：先裁切原图，再旋转裁切后的图片
+    cropped = it.crop_image(orig, crop_box) if crop_box else orig
+    display = it.rotate_image(cropped, rot)
     # 命名 + 格式
     fcol1, fcol2 = st.columns(2)
     fcol1.text_input("文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}")
