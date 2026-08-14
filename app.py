@@ -459,12 +459,18 @@ def main():
     hc[0].markdown(f"### 📋 订单 {idx + 1} / {len(orders)}")
     hc[0].caption("当前订单号（可复制）：")
     hc[0].code(str(order))
-    if hc[1].button("‹ 上一单", key="prev_order", width="stretch",
-                    on_click=_prev_order_cb, args=(idx, len(orders))):
-        pass
-    if hc[2].button("下一单 ›", key="next_order", width="stretch",
-                    on_click=_next_order_cb, args=(idx, len(orders))):
-        pass
+    if hc[1].button("‹ 上一单", key="prev_order", width="stretch"):
+        nidx = max(0, idx - 1)
+        st.session_state.curr_index = nidx
+        st.session_state.curr_photo = 0
+        st.session_state["order_jump"] = nidx  # selectbox 在其后渲染，可安全同步
+        st.rerun()
+    if hc[2].button("下一单 ›", key="next_order", width="stretch"):
+        nidx = min(len(orders) - 1, idx + 1)
+        st.session_state.curr_index = nidx
+        st.session_state.curr_photo = 0
+        st.session_state["order_jump"] = nidx
+        st.rerun()
 
     _urls = st.session_state.order_urls
     sel = st.selectbox("跳转到订单", range(len(orders)), index=idx,
