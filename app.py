@@ -223,6 +223,13 @@ def _reset_editor_cb(order, ph, orig):
     st.session_state["crop_reset"][pf] = st.session_state["crop_reset"].get(pf, 0) + 1
 
 
+def _switch_photo_cb(order, new_idx):
+    """二级页快速切换照片（on_click 回调）。"""
+    st.session_state.editor_open = f"{order}|{new_idx}"
+    st.session_state.curr_photo = new_idx
+    st.session_state.pop(f"ecrop_res_{order}_{new_idx}", None)
+
+
 @st.dialog("🖼️ 图片编辑（二级页面）", width="large")
 def image_editor(order, ph, orig):
     """二级编辑页面：所见即所得 —— 旋转/裁剪直接作用并显示在同一张图上。"""
@@ -248,8 +255,16 @@ def image_editor(order, ph, orig):
         st.session_state["proc"][pf] = cur
         st.session_state["rot_state"][pf] = rot
     reset_flag = st.session_state.get("crop_reset", {}).get(pf, 0)
-    crop_res = image_crop(img=_img_dataurl(cur), width=720, dbl_opens=False,
-                          reset=reset_flag, key=f"ecrop_{pf}")
+    # 上一张 / 图片 / 下一张（按钮在左右两侧、垂直居中）
+    urls_len = len(st.session_state.get("order_urls", {}).get(str(order), [ph]))
+    nav = st.columns([1, 8, 1], vertical_alignment="center")
+    nav[0].button("◀ 上一张", key=f"eprev_{pf}", disabled=(ph <= 0),
+                  on_click=_switch_photo_cb, args=(order, max(0, ph - 1)), width="stretch")
+    with nav[1]:
+        crop_res = image_crop(img=_img_dataurl(cur), width=720, dbl_opens=False,
+                              reset=reset_flag, key=f"ecrop_{pf}")
+    nav[2].button("下一张 ▶", key=f"enext_{pf}", disabled=(ph >= urls_len - 1),
+                  on_click=_switch_photo_cb, args=(order, min(urls_len - 1, ph + 1)), width="stretch")
     if isinstance(crop_res, dict):
         last_key = f"ecrop_res_{order}_{ph}"
         last_val = st.session_state.get(last_key)
@@ -270,13 +285,24 @@ def image_editor(order, ph, orig):
     fname_s = (st.session_state.get(f"fname_{pf}") or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
     ext = it.FORMAT_EXT.get(fmt_, "png")
     b1, b2, b3 = st.columns(3)
-    dl = b1.download_button("💾 下载处理图（自动保存到本地）",
-                            data=it.image_to_bytes(display, fmt_, 95),
-                            file_name=f"{fname_s}.{ext}", type="primary", key=f"dl_{pf}")
-    if dl:
-        st.session_state.saved[(order, ph)] = f"{fname_s}.{ext}"
-        st.toast(f"✅ 已下载：{fname_s}.{ext}")
-        st.rerun()
+    if sys.platform == "win32":
+        # 本地运行：直接保存到桌面（不弹系统窗口）
+        if b1.button("💾 保存到桌面", type="primary", width="stretch"):
+            outdir = st.session_state.export_dir or EXPORT_DIR_DEFAULT
+            os.makedirs(outdir, exist_ok=True)
+            path = os.path.join(outdir, f"{fname_s}.{ext}")
+            it.save_image(display, path, fmt_, 95)
+            st.session_state.saved[(order, ph)] = f"{fname_s}.{ext}"
+            st.toast(f"✅ 已保存：{path}")
+            st.rerun()
+    else:
+        dl = b1.download_button("💾 下载处理图（保存到本地）",
+                                data=it.image_to_bytes(display, fmt_, 95),
+                                file_name=f"{fname_s}.{ext}", type="primary", key=f"dl_{pf}")
+        if dl:
+            st.session_state.saved[(order, ph)] = f"{fname_s}.{ext}"
+            st.toast(f"✅ 已下载：{fname_s}.{ext}")
+            st.rerun()
     if b2.button("↩️ 重置（旋转/裁剪）", width="stretch",
                  on_click=_reset_editor_cb, args=(order, ph, orig)):
         pass
