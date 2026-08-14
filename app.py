@@ -62,6 +62,8 @@ def _init():
     st.session_state.setdefault("crop_box", {})
     st.session_state.setdefault("crop_reset", {})
     st.session_state.setdefault("editor_open", None)
+    st.session_state.setdefault("proc", {})
+    st.session_state.setdefault("rot_state", {})
     for d in (EXPORT_DIR_DEFAULT, UPLOAD_DIR, PHOTO_CACHE):
         os.makedirs(d, exist_ok=True)
 
@@ -210,19 +212,29 @@ def advance_after_save(n_urls, n_orders, idx):
 
 @st.dialog("🖼️ 图片编辑（二级页面）", width="large")
 def image_editor(order, ph, orig):
-    """二级编辑页面：旋转 + 微信截图式裁剪（效果直接显示在原图）+ 命名 + 下载。"""
+    """二级编辑页面：所见即所得 —— 旋转/裁剪直接作用并显示在同一张图上。"""
     pf = f"{order}|{ph}"
     # 确保会话状态键存在（dialog fragment 可能独立执行）
     st.session_state.setdefault("crop_box", {})
     st.session_state.setdefault("crop_reset", {})
     st.session_state.setdefault("editor_open", None)
+    st.session_state.setdefault("proc", {})
+    st.session_state.setdefault("rot_state", {})
+    if pf not in st.session_state["proc"]:
+        st.session_state["proc"][pf] = orig.copy()
     st.markdown("**双击图片放大** · 按 **C** 键裁剪 · 拖拽画选区 · "
                 "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
-    rot = st.slider("旋转角度 (°)", -180, 180, st.session_state.get(f"rot_{pf}", 0), 1, key=f"drot_{pf}")
-    crop_box = st.session_state.get("crop_box", {}).get(pf)
+    prev_rot = st.session_state.get("rot_state", {}).get(pf, 0)
+    rot = st.slider("旋转角度 (°)", -180, 180, prev_rot, 1, key=f"drot_{pf}")
+    # 旋转：增量应用到当前图（效果直接显示）
+    cur = st.session_state["proc"][pf]
+    delta = rot - prev_rot
+    if delta:
+        cur = it.rotate_image(cur, delta)
+        st.session_state["proc"][pf] = cur
+        st.session_state["rot_state"][pf] = rot
     reset_flag = st.session_state.get("crop_reset", {}).get(pf, 0)
-    # 裁剪基于原图进行；显示/下载结果 = 先裁切、再旋转裁切后的图片
-    crop_res = image_crop(img=_img_dataurl(orig), width=720, dbl_opens=False,
+    crop_res = image_crop(img=_img_dataurl(cur), width=720, dbl_opens=False,
                           reset=reset_flag, key=f"ecrop_{pf}")
     if isinstance(crop_res, dict):
         last_key = f"ecrop_res_{order}_{ph}"
@@ -230,16 +242,13 @@ def image_editor(order, ph, orig):
         if crop_res != last_val:
             st.session_state[last_key] = crop_res
             if crop_res.get("confirmed") and isinstance(crop_res.get("crop"), dict):
-                st.session_state.crop_box[pf] = crop_res["crop"]
+                st.session_state["proc"][pf] = it.crop_image(cur, crop_res["crop"])
                 st.toast("✅ 已应用裁剪")
                 st.rerun()
             if crop_res.get("canceled"):
-                st.session_state.crop_box.pop(pf, None)
                 st.toast("已取消裁剪")
                 st.rerun()
-    # 处理顺序：先裁切原图，再旋转裁切后的图片
-    cropped = it.crop_image(orig, crop_box) if crop_box else orig
-    display = it.rotate_image(cropped, rot)
+    display = st.session_state["proc"][pf]
     # 命名 + 格式
     fcol1, fcol2 = st.columns(2)
     fcol1.text_input("文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}")
@@ -251,17 +260,16 @@ def image_editor(order, ph, orig):
                             data=it.image_to_bytes(display, fmt_, 95),
                             file_name=f"{fname_s}.{ext}", type="primary", key=f"dl_{pf}")
     if dl:
-        st.session_state[f"rot_{pf}"] = rot
         st.session_state.saved[(order, ph)] = f"{fname_s}.{ext}"
         st.toast(f"✅ 已下载：{fname_s}.{ext}")
         st.rerun()
     if b2.button("↩️ 重置（旋转/裁剪）", width="stretch"):
+        st.session_state["proc"][pf] = orig.copy()
+        st.session_state["rot_state"][pf] = 0
         st.session_state[f"drot_{pf}"] = 0
-        st.session_state.crop_box.pop(pf, None)
         st.session_state.crop_reset[pf] = reset_flag + 1
         st.rerun()
     if b3.button("✖️ 关闭", width="stretch"):
-        st.session_state[f"rot_{pf}"] = rot
         st.session_state.editor_open = None
         st.rerun()
 
