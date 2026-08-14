@@ -121,12 +121,13 @@ var Streamlit = (function () {
     if (window.Streamlit) Streamlit.setComponentValue(v);
   }
   function fitImage() {
-    var w = baseWidth * zoom;
-    // 等比缩放：宽度不超过 baseWidth，高度不超过 baseWidth*1.1（适配显示区）
-    if (img.naturalWidth > 0) {
-      var h = img.naturalHeight * (w / img.naturalWidth);
-      var maxH = Math.round(baseWidth * 1.1);
-      if (h > maxH) { w = Math.round(w * maxH / h); }
+    // 等比适配显示区（maxW × maxH），旋转前后视觉大小一致，不因旋转越变越小
+    var maxW = baseWidth * zoom;
+    var maxH = Math.round(baseWidth * 1.1) * zoom;
+    var w = img.naturalWidth, h = img.naturalHeight;
+    if (w > 0 && h > 0) {
+      var s = Math.min(maxW / w, maxH / h, 1);
+      w = Math.max(1, Math.round(w * s));
     }
     img.style.width = w + 'px';
     img.style.height = 'auto';

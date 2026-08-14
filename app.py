@@ -225,7 +225,7 @@ def image_editor(order, ph, orig):
     st.markdown("**双击图片放大** · 按 **C** 键裁剪 · 拖拽画选区 · "
                 "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
     prev_rot = st.session_state.get("rot_state", {}).get(pf, 0)
-    rot = st.slider("旋转角度 (°)", -180, 180, prev_rot, 1, key=f"drot_{pf}")
+    rot = st.slider("旋转角度 (°)", -180, 180, prev_rot, 90, key=f"drot_{pf}")
     # 旋转：增量应用到当前图（效果直接显示）
     cur = st.session_state["proc"][pf]
     delta = rot - prev_rot

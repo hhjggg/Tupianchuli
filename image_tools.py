@@ -52,9 +52,34 @@ def load_image(path):
     return img.convert("RGB")
 
 
+def _trim_blank(img):
+    """自动裁掉图片四周的纯色空白边（用于旋转 expand 产生的空白）。"""
+    from PIL import ImageChops
+    try:
+        bg = img.getpixel((0, 0))
+        base = Image.new(img.mode, img.size, bg)
+        diff = ImageChops.difference(img, base)
+        bbox = diff.getbbox()
+        if bbox and bbox[2] - bbox[0] > 2 and bbox[3] - bbox[1] > 2:
+            return img.crop(bbox)
+    except Exception:
+        pass
+    return img
+
+
 def rotate_image(img, angle):
-    """按角度旋转（expand=True 保持完整内容）。"""
-    return img.rotate(int(angle) % 360, expand=True, resample=Image.BICUBIC)
+    """按角度旋转（expand=True 保持完整内容）。
+
+    90° 倍数旋转无空白扩大（画布恰好容纳内容，图片不会缩小）；
+    非 90° 倍数的任意角度会尝试自动裁掉 expand 产生的空白边。
+    """
+    angle = int(angle) % 360
+    if angle == 0:
+        return img
+    rot = img.rotate(angle, expand=True, resample=Image.BICUBIC)
+    if angle % 90 == 0:
+        return rot
+    return _trim_blank(rot)
 
 
 def crop_image(img, box):
