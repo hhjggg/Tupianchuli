@@ -210,7 +210,7 @@ def advance_after_save(n_urls, n_orders, idx):
 
 @st.dialog("🖼️ 图片编辑（二级页面）", width="large")
 def image_editor(order, ph, orig):
-    """二级编辑页面：直接显示原图 + 旋转 + 微信截图式裁剪。"""
+    """二级编辑页面：旋转 + 微信截图式裁剪（效果直接显示在原图）+ 命名 + 下载。"""
     pf = f"{order}|{ph}"
     # 确保会话状态键存在（dialog fragment 可能独立执行）
     st.session_state.setdefault("crop_box", {})
@@ -220,8 +220,11 @@ def image_editor(order, ph, orig):
                 "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
     rot = st.slider("旋转角度 (°)", -180, 180, st.session_state.get(f"rot_{pf}", 0), 1, key=f"drot_{pf}")
     rotated = it.rotate_image(orig, rot)
+    crop_box = st.session_state.get("crop_box", {}).get(pf)
     reset_flag = st.session_state.get("crop_reset", {}).get(pf, 0)
-    crop_res = image_crop(img=_img_dataurl(rotated), width=720, dbl_opens=False,
+    # 已裁剪：效果直接显示在原图上
+    display = it.crop_image(rotated, crop_box) if crop_box else rotated
+    crop_res = image_crop(img=_img_dataurl(display), width=720, dbl_opens=False,
                           reset=reset_flag, key=f"ecrop_{pf}")
     if isinstance(crop_res, dict):
         last_key = f"ecrop_res_{order}_{ph}"
@@ -236,24 +239,28 @@ def image_editor(order, ph, orig):
                 st.session_state.crop_box.pop(pf, None)
                 st.toast("已取消裁剪")
                 st.rerun()
-    crop_box = st.session_state.get("crop_box", {}).get(pf)
-    processed = it.crop_image(rotated, crop_box) if crop_box else rotated
-    c1, c2 = st.columns(2)
-    c1.caption(f"编辑中（旋转 {rot}°）")
-    c1.image(rotated, width="stretch")
-    c2.caption("结果" + ("，已裁剪" if crop_box else ""))
-    c2.image(processed, width="stretch")
+    # 命名 + 格式
+    fcol1, fcol2 = st.columns(2)
+    fcol1.text_input("文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}")
+    fmt_ = fcol2.selectbox("保存格式", ["PNG", "JPG", "WEBP"], index=0, key=f"fmt_{pf}")
+    fname_s = (st.session_state.get(f"fname_{pf}") or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
+    ext = it.FORMAT_EXT.get(fmt_, "png")
     b1, b2, b3 = st.columns(3)
-    if b1.button("✅ 应用并返回", type="primary", width="stretch"):
+    dl = b1.download_button("💾 下载处理图（自动保存到本地）",
+                            data=it.image_to_bytes(display, fmt_, 95),
+                            file_name=f"{fname_s}.{ext}", type="primary", key=f"dl_{pf}")
+    if dl:
         st.session_state[f"rot_{pf}"] = rot
-        st.session_state.editor_open = None
+        st.session_state.saved[(order, ph)] = f"{fname_s}.{ext}"
+        st.toast(f"✅ 已下载：{fname_s}.{ext}")
         st.rerun()
     if b2.button("↩️ 重置（旋转/裁剪）", width="stretch"):
         st.session_state[f"drot_{pf}"] = 0
         st.session_state.crop_box.pop(pf, None)
         st.session_state.crop_reset[pf] = reset_flag + 1
         st.rerun()
-    if b3.button("✖️ 取消", width="stretch"):
+    if b3.button("✖️ 关闭", width="stretch"):
+        st.session_state[f"rot_{pf}"] = rot
         st.session_state.editor_open = None
         st.rerun()
 
@@ -378,46 +385,8 @@ def main():
             st.rerun()
         return
 
-    pf = f"{order}|{ph}"
-    rot = st.session_state.get(f"rot_{pf}", 0)
-    crop_box = st.session_state.get("crop_box", {}).get(pf)
-    reset_flag = st.session_state.get("crop_reset", {}).get(pf, 0)
-    rotated = it.rotate_image(orig, rot)
-    processed = it.crop_image(rotated, crop_box) if crop_box else rotated
-
     st.subheader("🛠️ 图片处理")
-    st.caption("**双击上方照片缩略图**进入二级编辑（原图 + 旋转 + 微信截图式裁剪）")
-
-    st.divider()
-    fcol1, fcol2 = st.columns(2)
-    fcol1.text_input("保存文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}")
-    fmt_ = fcol2.selectbox("保存格式", ["PNG", "JPG", "WEBP"], index=0, key=f"fmt_{pf}")
-
-    done = (order, ph) in st.session_state.saved
-    bc = st.columns([2, 1, 1, 1])
-    auto_next = bc[0].checkbox("保存后自动跳到下一张/下一单", value=True, key="auto_next")
-    if bc[1].button("💾 保存当前图片" + ("（已保存·可覆盖）" if done else ""), type="primary", width="stretch"):
-        outdir = st.session_state.export_dir
-        os.makedirs(outdir, exist_ok=True)
-        fname_s = (st.session_state.get(f"fname_{pf}") or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
-        ext = it.FORMAT_EXT.get(fmt_, "png")
-        name = f"{fname_s}.{ext}"
-        path = os.path.join(outdir, name)
-        it.save_image(processed, path, fmt_, 95)
-        st.session_state.saved[(order, ph)] = path
-        st.toast(f"✅ 已保存：{name}")
-        if auto_next:
-            advance_after_save(len(urls), len(orders), idx)
-            st.rerun()
-    if bc[2].button("↩️ 重置本图（旋转/裁剪）", width="stretch"):
-        st.session_state[f"rot_{pf}"] = 0
-        st.session_state.crop_box.pop(pf, None)
-        st.session_state.crop_reset[pf] = reset_flag + 1
-        st.rerun()
-    if bc[3].button("⬇️ 下载此图", width="stretch"):
-        fname_s = (st.session_state.get(f"fname_{pf}") or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
-        st.download_button("点击下载", data=it.image_to_bytes(processed, fmt_, 95),
-                           file_name=f"{fname_s}.{it.FORMAT_EXT.get(fmt_, 'png')}", key=f"dl_{pf}")
+    st.caption("**双击上方照片缩略图**进入二级编辑（旋转 + 微信截图式裁剪 + 命名 + 下载）")
 
     # 二级编辑页面（双击照片缩略图后弹出）
     edit_key = st.session_state.get("editor_open")
