@@ -8,6 +8,7 @@ import glob
 import io
 import os
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import streamlit as st
@@ -64,6 +65,7 @@ def _init():
     st.session_state.setdefault("editor_open", None)
     st.session_state.setdefault("proc", {})
     st.session_state.setdefault("rot_state", {})
+    st.session_state.setdefault("prefetched", set())
     for d in (EXPORT_DIR_DEFAULT, UPLOAD_DIR, PHOTO_CACHE):
         os.makedirs(d, exist_ok=True)
 
@@ -186,6 +188,26 @@ def get_order_photos(order):
                 prog.progress(done / len(urls), text=f"正在下载订单 {order} 的照片 ... {done}/{len(urls)}")
         st.session_state[key] = results
     return st.session_state[key]
+
+
+def _prefetch_urls(urls):
+    """后台线程：把照片 URL 逐个下载到本地缓存（纯函数，不访问 session_state）。"""
+    for u in urls:
+        it.ensure_downloaded(u, PHOTO_CACHE)
+
+
+def _trigger_prefetch():
+    """预下载下一个订单的照片到缓存（后台线程，不阻塞当前页面）。"""
+    orders = st.session_state.get("orders", [])
+    idx = st.session_state.get("curr_index", 0)
+    if orders and idx + 1 < len(orders):
+        nxt = orders[idx + 1]
+        st.session_state.setdefault("prefetched", set())
+        if nxt not in st.session_state["prefetched"]:
+            st.session_state["prefetched"].add(nxt)
+            urls = st.session_state.get("order_urls", {}).get(nxt, [])
+            if urls:
+                threading.Thread(target=_prefetch_urls, args=(urls,), daemon=True).start()
 
 
 def get_original(order, ph):
@@ -413,6 +435,7 @@ def main():
     st.markdown(f"#### 🖼️ 该订单共 {len(urls)} 张照片")
 
     thumbs = get_order_photos(order)
+    _trigger_prefetch()  # 后台预下载下一个订单的照片
     tcols = st.columns(min(len(urls), 6))
     for i, u in enumerate(urls):
         path, ok = thumbs.get(u, (None, False))
