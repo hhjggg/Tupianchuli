@@ -33,6 +33,14 @@ def _img_dataurl(img, fmt="JPEG"):
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
+def _thumb_dataurl(img, max_w=240):
+    """缩略图（等比缩小后）→ base64 data URL。"""
+    if img.width > max_w:
+        r = max_w / img.width
+        img = img.resize((max_w, max(1, int(img.height * r))), Image.LANCZOS)
+    return _img_dataurl(img)
+
+
 def _init():
     st.session_state.setdefault("parse_done", False)
     st.session_state.setdefault("orders", [])
@@ -334,8 +342,18 @@ def main():
         path, ok = thumbs.get(u, (None, False))
         with tcols[i % len(tcols)]:
             if ok:
+                t_img = Image.open(path).convert("RGB")
                 cap = f"第{i+1}张" + (" ✅已存" if (order, i) in st.session_state.saved else "")
-                st.image(Image.open(path).convert("RGB"), caption=cap, width=150)
+                th_res = image_crop(img=_thumb_dataurl(t_img), width=150, dbl_opens=True, key=f"th_{order}_{i}")
+                if isinstance(th_res, dict) and th_res.get("open_editor"):
+                    ts = th_res.get("open_ts")
+                    last_key = f"th_open_{order}_{i}"
+                    if ts is not None and ts != st.session_state.get(last_key):
+                        st.session_state[last_key] = ts
+                        st.session_state.editor_open = f"{order}|{i}"
+                        st.session_state.curr_photo = i
+                        st.rerun()
+                st.caption(cap)
             else:
                 st.warning(f"第{i+1}张下载失败")
 
@@ -357,32 +375,17 @@ def main():
         return
 
     pf = f"{order}|{ph}"
-
-    # 👁️ 预览图（位于“图片处理”上方）：双击 → 打开二级编辑页
-    st.markdown("#### 👁️ 预览图（双击进入二级编辑）")
-    prev_res = image_crop(img=_img_dataurl(orig), width=480, dbl_opens=True, key=f"prev_{pf}")
-    if isinstance(prev_res, dict) and prev_res.get("open_editor"):
-        open_ts = prev_res.get("open_ts")
-        last_open_key = f"prev_open_{order}_{ph}"
-        if open_ts is not None and open_ts != st.session_state.get(last_open_key):
-            st.session_state[last_open_key] = open_ts
-            st.session_state.editor_open = pf
-            st.rerun()
-
-    st.subheader("🛠️ 图片处理")
-    st.caption("在下方预览处理结果；双击上方预览图可再次进入二级编辑")
-
     rot = st.session_state.get(f"rot_{pf}", 0)
     crop_box = st.session_state.crop_box.get(pf)
     reset_flag = st.session_state.crop_reset.get(pf, 0)
     rotated = it.rotate_image(orig, rot)
     processed = it.crop_image(rotated, crop_box) if crop_box else rotated
 
-    c1, c2 = st.columns(2)
-    c1.caption("原图")
-    c1.image(orig, width="stretch")
-    c2.caption("当前结果" + (f"（旋转 {rot}°" + ("，已裁剪" if crop_box else "") + "）" if (rot or crop_box) else ""))
-    c2.image(processed, width="stretch")
+    st.subheader("🛠️ 图片处理")
+    st.caption("**双击上方照片缩略图**进入二级编辑（原图 + 旋转 + 微信截图式裁剪）")
+
+    st.markdown("##### 处理完成图")
+    st.image(processed, width="stretch")
 
     st.divider()
     done = (order, ph) in st.session_state.saved
@@ -408,9 +411,19 @@ def main():
         st.download_button("点击下载", data=it.image_to_bytes(processed, "JPG", 90),
                            file_name=f"{order}_{ph + 1}.jpg", key=f"dl_{pf}")
 
-    # 二级编辑页面（双击预览图后弹出）
-    if st.session_state.get("editor_open") == pf:
-        image_editor(order, ph, orig)
+    # 二级编辑页面（双击照片缩略图后弹出）
+    edit_key = st.session_state.get("editor_open")
+    if edit_key:
+        e_order = e_idx = None
+        try:
+            e_order, e_idx_s = str(edit_key).split("|", 1)
+            e_idx = int(e_idx_s)
+        except (ValueError, AttributeError):
+            pass
+        if e_order == str(order) and e_idx is not None and 0 <= e_idx < len(urls):
+            e_orig = get_original(order, e_idx)
+            if e_orig is not None:
+                image_editor(order, e_idx, e_orig)
 
     st.divider()
     mrow = st.columns([2, 3])
