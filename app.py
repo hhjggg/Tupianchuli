@@ -413,10 +413,12 @@ def main():
     if hc[1].button("‹ 上一单", key="prev_order", width="stretch"):
         st.session_state.curr_index = max(0, idx - 1)
         st.session_state.curr_photo = 0
+        st.session_state.pop("order_jump", None)  # 清除跳转下拉残留，避免被拉回
         st.rerun()
     if hc[2].button("下一单 ›", key="next_order", width="stretch"):
         st.session_state.curr_index = min(len(orders) - 1, idx + 1)
         st.session_state.curr_photo = 0
+        st.session_state.pop("order_jump", None)  # 清除跳转下拉残留，避免被拉回
         st.rerun()
 
     _urls = st.session_state.order_urls
@@ -451,6 +453,7 @@ def main():
                         st.session_state[last_key] = ts
                         st.session_state.editor_open = f"{order}|{i}"
                         st.session_state.curr_photo = i
+                        st.session_state.pop(f"photo_sel_{order}", None)  # 清除照片选择残留，跟随双击
                         st.rerun()
                 st.caption(cap)
             else:
@@ -459,7 +462,7 @@ def main():
     _saved = st.session_state.saved
     psel = st.radio("选择要处理的照片", range(len(urls)), index=ph,
                     format_func=lambda i, _order=order, _saved=_saved: f"第 {i+1} 张" + ("（已保存）" if (_order, i) in _saved else ""),
-                    horizontal=True, key="photo_sel")
+                    horizontal=True, key=f"photo_sel_{order}")
     if psel != ph:
         st.session_state.curr_photo = psel
         st.rerun()
