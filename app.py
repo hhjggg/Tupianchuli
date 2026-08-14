@@ -245,6 +245,22 @@ def _reset_editor_cb(order, ph, orig):
     st.session_state["crop_reset"][pf] = st.session_state["crop_reset"].get(pf, 0) + 1
 
 
+def _prev_order_cb(idx, n):
+    """上一单（on_click 回调，在 widget 实例化前执行，可同步 selectbox 值）。"""
+    nidx = max(0, idx - 1)
+    st.session_state.curr_index = nidx
+    st.session_state.curr_photo = 0
+    st.session_state["order_jump"] = nidx
+
+
+def _next_order_cb(idx, n):
+    """下一单（on_click 回调）。"""
+    nidx = min(n - 1, idx + 1)
+    st.session_state.curr_index = nidx
+    st.session_state.curr_photo = 0
+    st.session_state["order_jump"] = nidx
+
+
 def _fname_change_cb(pf):
     """文件名输入框值变化时，立即提交到独立键（on_change 回调）。"""
     st.session_state[f"fname_val_{pf}"] = st.session_state.get(f"fname_{pf}", "").strip()
@@ -410,16 +426,12 @@ def main():
     st.divider()
     hc = st.columns([4, 1, 1])
     hc[0].markdown(f"### 📋 订单 {idx + 1} / {len(orders)}")
-    if hc[1].button("‹ 上一单", key="prev_order", width="stretch"):
-        st.session_state.curr_index = max(0, idx - 1)
-        st.session_state.curr_photo = 0
-        st.session_state.pop("order_jump", None)  # 清除跳转下拉残留，避免被拉回
-        st.rerun()
-    if hc[2].button("下一单 ›", key="next_order", width="stretch"):
-        st.session_state.curr_index = min(len(orders) - 1, idx + 1)
-        st.session_state.curr_photo = 0
-        st.session_state.pop("order_jump", None)  # 清除跳转下拉残留，避免被拉回
-        st.rerun()
+    if hc[1].button("‹ 上一单", key="prev_order", width="stretch",
+                    on_click=_prev_order_cb, args=(idx, len(orders))):
+        pass
+    if hc[2].button("下一单 ›", key="next_order", width="stretch",
+                    on_click=_next_order_cb, args=(idx, len(orders))):
+        pass
 
     _urls = st.session_state.order_urls
     sel = st.selectbox("跳转到订单", range(len(orders)), index=idx,
@@ -453,7 +465,7 @@ def main():
                         st.session_state[last_key] = ts
                         st.session_state.editor_open = f"{order}|{i}"
                         st.session_state.curr_photo = i
-                        st.session_state.pop(f"photo_sel_{order}", None)  # 清除照片选择残留，跟随双击
+                        st.session_state[f"photo_sel_{order}"] = i  # 同步照片选择，避免残留覆盖
                         st.rerun()
                 st.caption(cap)
             else:
