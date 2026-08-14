@@ -109,6 +109,7 @@ var Streamlit = (function () {
   var cropMode = false, box = null;
   var drawing = false, drag = null, startX = 0, startY = 0;
   var lastImg = null, lastReset = null;
+  var dblOpens = false;   // true=预览模式(双击开编辑页)；false=编辑模式(双击确认裁剪)
 
   function scale() {
     var r = img.getBoundingClientRect();
@@ -161,13 +162,19 @@ var Streamlit = (function () {
     send({ crop: null, canceled: true });
   }
 
-  // 点击图片：等比例放大（循环 100% → 150% → 200% → 300%）
+  // 单击：预览模式不做操作（等待双击）；编辑模式等比例放大（前端缩放，不触发 rerun）
   img.addEventListener('click', function (e) {
     if (cropMode) return;
+    if (dblOpens) return;
     zoomIdx = (zoomIdx + 1) % ZOOMS.length;
     zoom = ZOOMS[zoomIdx];
     fitImage();
-    send({ zoom: zoom });
+  });
+  // 双击：预览模式 → 打开二级编辑页；编辑模式 → 确认裁剪
+  img.addEventListener('dblclick', function (e) {
+    if (cropMode) return;
+    if (dblOpens) { send({ open_editor: true }); }
+    else { confirmCrop(); }
   });
 
   // 快捷键：C 进入裁剪；裁剪时 Enter 确认 / Esc 取消 / 方向键微调
@@ -250,6 +257,12 @@ var Streamlit = (function () {
       zoom = 1; zoomIdx = 0;
       cropMode = false; box = null;
       mask.style.display = 'none'; boxEl.style.display = 'none';
+      tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+    }
+    dblOpens = data.dbl_opens === true;
+    if (data.dbl_opens === true) {
+      tipEl.textContent = '双击图片进入编辑 · 按 C 键裁剪';
+    } else {
       tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
     }
     if (data.reset !== lastReset) {
