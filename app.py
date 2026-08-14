@@ -235,7 +235,7 @@ def image_editor(order, ph, orig):
     st.session_state.setdefault("rot_state", {})
     if pf not in st.session_state["proc"]:
         st.session_state["proc"][pf] = orig.copy()
-    st.markdown("**双击图片放大** · 按 **C** 键裁剪 · 拖拽画选区 · "
+    st.markdown("**双击图片放大** · 按 **X** 键裁剪 · 拖拽画选区 · "
                 "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
     prev_rot = st.session_state.get("rot_state", {}).get(pf, 0)
     st.session_state.setdefault(f"drot_{pf}", prev_rot)

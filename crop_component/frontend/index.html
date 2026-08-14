@@ -161,11 +161,11 @@ var Streamlit = (function () {
     };
     send({ crop: crop, confirmed: true });
     cropMode = false; mask.style.display = 'none'; boxEl.style.display = 'none';
-    tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+    tipEl.textContent = '单击图片放大 · 按 X 键裁剪';
   }
   function cancelCrop() {
     cropMode = false; mask.style.display = 'none'; boxEl.style.display = 'none'; box = null;
-    tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+    tipEl.textContent = '单击图片放大 · 按 X 键裁剪';
     send({ crop: null, canceled: true });
   }
 
@@ -187,7 +187,7 @@ var Streamlit = (function () {
   // 快捷键：C 进入裁剪；裁剪时 Enter 确认 / Esc 取消 / 方向键微调
   document.addEventListener('keydown', function (e) {
     if (!cropMode) {
-      if (e.key === 'c' || e.key === 'C') { e.preventDefault(); enterCrop(); }
+      if (e.key === 'x' || e.key === 'X') { e.preventDefault(); enterCrop(); }
       return;
     }
     if (e.key === 'Escape') { e.preventDefault(); cancelCrop(); }
@@ -264,19 +264,19 @@ var Streamlit = (function () {
       zoom = 1; zoomIdx = 0;
       cropMode = false; box = null;
       mask.style.display = 'none'; boxEl.style.display = 'none';
-      tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+      tipEl.textContent = '单击图片放大 · 按 X 键裁剪';
     }
     dblOpens = data.dbl_opens === true;
     if (data.dbl_opens === true) {
-      tipEl.textContent = '双击图片进入编辑 · 按 C 键裁剪';
+      tipEl.textContent = '双击图片进入编辑 · 按 X 键裁剪';
     } else {
-      tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+      tipEl.textContent = '单击图片放大 · 按 X 键裁剪';
     }
     if (data.reset !== lastReset) {
       lastReset = data.reset;
       cropMode = false; box = null;
       mask.style.display = 'none'; boxEl.style.display = 'none';
-      tipEl.textContent = '单击图片放大 · 按 C 键裁剪';
+      tipEl.textContent = '单击图片放大 · 按 X 键裁剪';
     }
   });
   img.onload = function () { fitImage(); };
