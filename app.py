@@ -353,7 +353,16 @@ def image_editor(order, ph, orig):
         if crop_res != last_val:
             st.session_state[last_key] = crop_res
             if crop_res.get("confirmed") and isinstance(crop_res.get("crop"), dict):
-                st.session_state["proc"][pf] = it.crop_image(cur, crop_res["crop"])
+                crop = crop_res["crop"]
+                # 组件显示的是缩小图(max_w=900)，裁剪坐标需换算回全尺寸
+                ratio = cur.width / min(cur.width, 900)
+                crop_full = {
+                    "x": int(crop.get("x", 0) * ratio),
+                    "y": int(crop.get("y", 0) * ratio),
+                    "w": int(crop.get("w", 0) * ratio),
+                    "h": int(crop.get("h", 0) * ratio),
+                }
+                st.session_state["proc"][pf] = it.crop_image(cur, crop_full)
                 st.toast("✅ 已应用裁剪")
                 st.rerun()
             if crop_res.get("canceled"):
@@ -388,11 +397,12 @@ def image_editor(order, ph, orig):
             st.toast(f"✅ 已下载：{fname_s}.{ext}")
             st.rerun()
     if b2.button("↩️ 重置（旋转/裁剪）", width="stretch"):
-        st.session_state["proc"][pf] = orig.copy()
-        st.session_state["rot_state"][pf] = 0
+        # 清除处理副本，下次渲染自动从留底（原始图）重新复制
+        st.session_state["proc"].pop(pf, None)
+        st.session_state["rot_state"].pop(pf, None)
         st.session_state["crop_reset"][pf] = st.session_state.get("crop_reset", {}).get(pf, 0) + 1
-        st.session_state[f"reset_flag_{pf}"] = True
         st.session_state.pop(f"ecrop_res_{order}_{ph}", None)
+        st.session_state[f"reset_flag_{pf}"] = True
         st.rerun()
     if b3.button("✖️ 关闭", width="stretch"):
         st.session_state.editor_open = None
