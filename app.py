@@ -223,16 +223,27 @@ def _reset_editor_cb(order, ph, orig):
     st.session_state["crop_reset"][pf] = st.session_state["crop_reset"].get(pf, 0) + 1
 
 
-def _switch_photo_cb(order, new_idx):
-    """二级页快速切换照片（on_click 回调）。"""
-    st.session_state.editor_open = f"{order}|{new_idx}"
-    st.session_state.curr_photo = new_idx
-    st.session_state.pop(f"ecrop_res_{order}_{new_idx}", None)
+def _fname_change_cb(pf):
+    """文件名输入框值变化时，立即提交到独立键（on_change 回调）。"""
+    st.session_state[f"fname_val_{pf}"] = st.session_state.get(f"fname_{pf}", "").strip()
 
 
 @st.dialog("🖼️ 图片编辑（二级页面）", width="large")
 def image_editor(order, ph, orig):
     """二级编辑页面：所见即所得 —— 旋转/裁剪直接作用并显示在同一张图上。"""
+    # 从 session_state 解析最新编辑目标（dialog fragment 重跑时传入参数可能为旧值）
+    cur_open = st.session_state.get("editor_open")
+    if cur_open:
+        try:
+            cur_o, cur_i_s = str(cur_open).split("|", 1)
+            cur_i = int(cur_i_s)
+            if cur_o == str(order) and cur_i != ph:
+                ph = cur_i
+                new_orig = get_original(order, ph)
+                if new_orig is not None:
+                    orig = new_orig
+        except (ValueError, AttributeError):
+            pass
     pf = f"{order}|{ph}"
     # 确保会话状态键存在（dialog fragment 可能独立执行）
     st.session_state.setdefault("crop_box", {})
@@ -255,16 +266,22 @@ def image_editor(order, ph, orig):
         st.session_state["proc"][pf] = cur
         st.session_state["rot_state"][pf] = rot
     reset_flag = st.session_state.get("crop_reset", {}).get(pf, 0)
-    # 上一张 / 图片 / 下一张（按钮在左右两侧、垂直居中）
+    # 上一张 / 图片 / 下一张（按钮在左右两侧、垂直居中；直接改状态并完整刷新）
     urls_len = len(st.session_state.get("order_urls", {}).get(str(order), [ph]))
     nav = st.columns([1, 8, 1], vertical_alignment="center")
-    nav[0].button("◀ 上一张", key=f"eprev_{pf}", disabled=(ph <= 0),
-                  on_click=_switch_photo_cb, args=(order, max(0, ph - 1)), width="stretch")
+    if nav[0].button("◀ 上一张", key=f"eprev_{pf}", disabled=(ph <= 0), width="stretch"):
+        new_idx = max(0, ph - 1)
+        st.session_state.editor_open = f"{order}|{new_idx}"
+        st.session_state.curr_photo = new_idx
+        st.session_state.pop(f"ecrop_res_{order}_{new_idx}", None)
     with nav[1]:
         crop_res = image_crop(img=_img_dataurl(cur), width=720, dbl_opens=False,
                               reset=reset_flag, key=f"ecrop_{pf}")
-    nav[2].button("下一张 ▶", key=f"enext_{pf}", disabled=(ph >= urls_len - 1),
-                  on_click=_switch_photo_cb, args=(order, min(urls_len - 1, ph + 1)), width="stretch")
+    if nav[2].button("下一张 ▶", key=f"enext_{pf}", disabled=(ph >= urls_len - 1), width="stretch"):
+        new_idx = min(urls_len - 1, ph + 1)
+        st.session_state.editor_open = f"{order}|{new_idx}"
+        st.session_state.curr_photo = new_idx
+        st.session_state.pop(f"ecrop_res_{order}_{new_idx}", None)
     if isinstance(crop_res, dict):
         last_key = f"ecrop_res_{order}_{ph}"
         last_val = st.session_state.get(last_key)
@@ -280,9 +297,11 @@ def image_editor(order, ph, orig):
     display = st.session_state["proc"][pf]
     # 命名 + 格式
     fcol1, fcol2 = st.columns(2)
-    fcol1.text_input("文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}")
+    fcol1.text_input("文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}",
+                     on_change=_fname_change_cb, args=(pf,))
     fmt_ = fcol2.selectbox("保存格式", ["PNG", "JPG", "WEBP"], index=0, key=f"fmt_{pf}")
-    fname_s = (st.session_state.get(f"fname_{pf}") or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
+    fname_s = (st.session_state.get(f"fname_val_{pf}") or st.session_state.get(f"fname_{pf}")
+               or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
     ext = it.FORMAT_EXT.get(fmt_, "png")
     b1, b2, b3 = st.columns(3)
     if sys.platform == "win32":
