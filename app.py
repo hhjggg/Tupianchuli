@@ -319,23 +319,24 @@ def main():
         st.markdown("##### ✂️ 裁剪（参考微信截图）")
         st.caption("单击图片**等比例放大** ｜ 按 **C** 键进入裁剪 ｜ 拖拽画选区 ｜ "
                    "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
-        reset_flag = st.session_state.crop_reset.get((order, ph), 0)
+        reset_flag = st.session_state.crop_reset.get(f"{order}|{ph}", 0)
         crop_res = image_crop(img=_img_dataurl(rotated), width=460, reset=reset_flag, key=f"cropc_{pf}")
-        # 消费组件交互结果（避免 rerun 后重复触发）
-        last_res_key = ("crop_res", order, ph)
-        last_val = st.session_state.get(last_res_key)
-        if crop_res and crop_res != last_val:
-            st.session_state[last_res_key] = crop_res
-            if crop_res.get("confirmed") and crop_res.get("crop"):
-                st.session_state.crop_box[(order, ph)] = crop_res["crop"]
-                st.toast("✅ 已应用裁剪")
-                st.rerun()
-            if crop_res.get("canceled"):
-                st.session_state.crop_box.pop((order, ph), None)
-                st.toast("已取消裁剪")
-                st.rerun()
+        # 消费组件交互结果（避免 rerun 后重复触发；防御非 dict 返回值）
+        if isinstance(crop_res, dict):
+            last_res_key = f"crop_res_{order}_{ph}"
+            last_val = st.session_state.get(last_res_key)
+            if crop_res != last_val:
+                st.session_state[last_res_key] = crop_res
+                if crop_res.get("confirmed") and isinstance(crop_res.get("crop"), dict):
+                    st.session_state.crop_box[f"{order}|{ph}"] = crop_res["crop"]
+                    st.toast("✅ 已应用裁剪")
+                    st.rerun()
+                if crop_res.get("canceled"):
+                    st.session_state.crop_box.pop(f"{order}|{ph}", None)
+                    st.toast("已取消裁剪")
+                    st.rerun()
 
-    crop_box = st.session_state.crop_box.get((order, ph))
+    crop_box = st.session_state.crop_box.get(f"{order}|{ph}")
     processed = it.crop_image(rotated, crop_box) if crop_box else rotated
 
     with pc:
@@ -363,8 +364,8 @@ def main():
             st.rerun()
     if bc[2].button("↩️ 重置本图（旋转/裁剪）", width="stretch"):
         st.session_state[f"rot_{pf}"] = 0
-        st.session_state.crop_box.pop((order, ph), None)
-        st.session_state.crop_reset[(order, ph)] = reset_flag + 1
+        st.session_state.crop_box.pop(f"{order}|{ph}", None)
+        st.session_state.crop_reset[f"{order}|{ph}"] = reset_flag + 1
         st.rerun()
     if bc[3].button("⬇️ 下载此图", width="stretch"):
         st.download_button("点击下载", data=it.image_to_bytes(processed, "JPG", 90),
@@ -394,5 +395,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            err_path = os.path.join(UPLOAD_DIR, "error.log")
+            with open(err_path, "w", encoding="utf-8") as fp:
+                fp.write(tb)
+        except Exception:
+            pass
+        st.error(f"程序发生错误：{type(e).__name__}: {e}\n\n完整错误已写入 {UPLOAD_DIR}\\error.log，请把日志内容反馈给开发者。")
+
 

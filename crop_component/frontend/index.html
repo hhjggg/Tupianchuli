@@ -2,7 +2,6 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<script src="https://cdn.jsdelivr.net/npm/streamlit-component-lib@2.0.0/dist/index.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: "Microsoft YaHei", system-ui, sans-serif; }
@@ -63,6 +62,43 @@
   <div id="tip"></div>
 </div>
 <script>
+// ===== 自实现 Streamlit 组件通信协议（等价 streamlit-component-lib@2.0.0）=====
+var Streamlit = (function () {
+  function sendBackMsg(type, data) {
+    var msg = { isStreamlitMessage: true, type: type };
+    if (data) { for (var k in data) msg[k] = data[k]; }
+    window.parent.postMessage(msg, "*");
+  }
+  return {
+    RENDER_EVENT: "streamlit:render",
+    API_VERSION: 1,
+    setComponentReady: function () {
+      if (!Streamlit.registeredMessageListener) {
+        window.addEventListener("message", Streamlit.onMessageEvent);
+        Streamlit.registeredMessageListener = true;
+      }
+      sendBackMsg("streamlit:componentReady", { apiVersion: Streamlit.API_VERSION });
+    },
+    setFrameHeight: function (height) {
+      if (height === undefined) { height = document.body.scrollHeight; }
+      if (height === Streamlit.lastFrameHeight) { return; }
+      Streamlit.lastFrameHeight = height;
+      sendBackMsg("streamlit:setFrameHeight", { height: height });
+    },
+    setComponentValue: function (value) {
+      sendBackMsg("streamlit:setComponentValue", { value: value, dataType: "json" });
+    },
+    onMessageEvent: function (event) {
+      var type = event.data && event.data["type"];
+      if (type === Streamlit.RENDER_EVENT) { Streamlit.onRenderMessage(event.data); }
+    },
+    onRenderMessage: function (data) {
+      var ev = new CustomEvent(Streamlit.RENDER_EVENT, { detail: data });
+      window.dispatchEvent(ev);
+    },
+    addEventListener: function (type, cb) { window.addEventListener(type, cb); }
+  };
+}());
 (function () {
   var wrap = document.getElementById('wrap'), img = document.getElementById('img'),
       mask = document.getElementById('mask'), boxEl = document.getElementById('box'),
