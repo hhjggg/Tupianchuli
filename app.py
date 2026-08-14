@@ -42,6 +42,14 @@ def _thumb_dataurl(img, max_w=240):
     return _img_dataurl(img)
 
 
+def _img_dataurl_small(img, max_w=900):
+    """缩小后转 base64（供组件显示，大幅提升渲染速度；下载仍用全分辨率）。"""
+    if img.width > max_w:
+        r = max_w / img.width
+        img = img.resize((max_w, max(1, int(img.height * r))), Image.LANCZOS)
+    return _img_dataurl(img)
+
+
 def _init():
     st.session_state.setdefault("parse_done", False)
     st.session_state.setdefault("orders", [])
@@ -313,7 +321,7 @@ def image_editor(order, ph, orig):
         st.session_state.curr_photo = new_idx
         st.session_state.pop(f"ecrop_res_{order}_{new_idx}", None)
     with nav[1]:
-        crop_res = image_crop(img=_img_dataurl(cur), width=720, dbl_opens=False,
+        crop_res = image_crop(img=_img_dataurl_small(cur), width=720, dbl_opens=False,
                               reset=reset_flag, key=f"ecrop_{pf}")
     if nav[2].button("下一张 ▶", key=f"enext_{pf}", disabled=(ph >= urls_len - 1), width="stretch"):
         new_idx = min(urls_len - 1, ph + 1)
@@ -455,9 +463,12 @@ def main():
         path, ok = thumbs.get(u, (None, False))
         with tcols[i % len(tcols)]:
             if ok:
-                t_img = Image.open(path).convert("RGB")
                 cap = f"第{i+1}张" + (" ✅已存" if (order, i) in st.session_state.saved else "")
-                th_res = image_crop(img=_thumb_dataurl(t_img), width=150, dbl_opens=True, key=f"th_{order}_{i}")
+                tb_key = f"thumb_{order}_{i}"
+                if tb_key not in st.session_state:
+                    t_img = Image.open(path).convert("RGB")
+                    st.session_state[tb_key] = _thumb_dataurl(t_img)
+                th_res = image_crop(img=st.session_state[tb_key], width=150, dbl_opens=True, key=f"th_{order}_{i}")
                 if isinstance(th_res, dict) and th_res.get("open_editor"):
                     ts = th_res.get("open_ts")
                     last_key = f"th_open_{order}_{i}"
