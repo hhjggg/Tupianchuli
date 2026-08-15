@@ -255,6 +255,8 @@ var Streamlit = (function () {
 
   // Streamlit 组件生命周期
   Streamlit.setComponentReady();
+  // 自动聚焦 iframe，确保键盘快捷键（X/Enter/方向键）立即生效
+  setTimeout(function () { if (window.focus) { window.focus(); } }, 200);
   Streamlit.addEventListener(Streamlit.RENDER_EVENT, function (ev) {
     var data = ev.detail.args || {};
     if (data.img && data.img !== lastImg) {
@@ -279,7 +281,9 @@ var Streamlit = (function () {
       tipEl.textContent = '单击图片放大 · 按 X 键裁剪';
     }
   });
-  img.onload = function () { fitImage(); };
+  img.onload = function () { fitImage(); if (window.focus) { window.focus(); } };
+  // 点击图片/区域时确保焦点，保证按键立即生效
+  wrap.addEventListener('mousedown', function () { if (window.focus) { window.focus(); } });
 })();
 </script>
 </body>
