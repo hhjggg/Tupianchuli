@@ -273,15 +273,21 @@ def _next_order_cb(idx, n):
 
 
 def render_upload_status(order):
-    """渲染“上传状态”标记区（有照片/无照片订单通用）。"""
+    """渲染“上传状态”标记区（有照片/无照片订单通用）。
+
+    使用 st.form：选择上传状态不会触发页面刷新，点「标记」才提交。
+    """
     st.divider()
-    mrow = st.columns([2, 2, 1])
     marked = order in st.session_state.get("marked", set())
     marked_val = st.session_state.get("upload_status", {}).get(order, "")
     status_text = ("✅ 已标记：" + marked_val) if marked else "⬜ 未标记"
-    mrow[0].markdown(f"**上传状态：** {status_text}")
-    up_status = mrow[1].selectbox("上传状态", ["是", "无上传通道"], key=f"up_status_{order}")
-    if mrow[2].button("📤 标记", width="stretch", disabled=marked):
+    st.markdown(f"**上传状态：** {status_text}")
+    with st.form(key=f"up_form_{order}"):
+        col1, col2 = st.columns([2, 1])
+        col1.selectbox("上传状态", ["是", "无上传通道"], key=f"up_status_{order}")
+        submitted = col2.form_submit_button("📤 标记")
+    if submitted:
+        up_status = st.session_state.get(f"up_status_{order}", "是")
         path1 = st.session_state.sheet1_path
         try:
             with st.spinner("正在写入单号表..."):
