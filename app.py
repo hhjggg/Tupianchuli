@@ -532,6 +532,10 @@ def main():
                         st.session_state.editor_open = f"{order}|{i}"
                         st.session_state.curr_photo = i
                         st.session_state[f"photo_sel_{order}"] = i  # 同步照片选择，避免残留覆盖
+                        # 打开编辑页时清除处理副本，确保每次从原始留底重新开始
+                        st.session_state["proc"].pop(f"{order}|{i}", None)
+                        st.session_state["rot_state"].pop(f"{order}|{i}", None)
+                        st.session_state[f"reset_flag_{order}|{i}"] = True
                         st.rerun()
                 st.caption(cap)
             else:
