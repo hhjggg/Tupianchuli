@@ -271,6 +271,27 @@ def _next_order_cb(idx, n):
     st.session_state["order_jump"] = nidx
 
 
+def _jump_select_cb():
+    """跳转到订单下拉框 on_change 回调（在 widget 实例化前执行，可安全设置状态）。"""
+    sel = st.session_state.get("order_jump")
+    orders = st.session_state.get("orders", [])
+    cur = st.session_state.get("current_order", "")
+    if sel and sel in orders:
+        idx = orders.index(sel)
+        st.session_state.curr_index = idx
+        st.session_state.curr_photo = 0
+        st.session_state.editor_open = None
+        st.session_state[f"photo_sel_{sel}"] = 0
+    else:
+        orders_all = st.session_state.get("orders_all", orders)
+        if sel in orders_all:
+            st.session_state["jump_msg"] = f"⚠️ 订单 {sel} 无照片或未匹配，无法处理"
+        else:
+            st.session_state["jump_msg"] = f"⚠️ 订单号 {sel or '（空）'} 不存在"
+        if cur:
+            st.session_state["order_jump"] = cur  # 恢复下拉框为当前订单
+
+
 def _jump_to_order():
     """按订单号直达（on_click 回调，在 widget 实例化前执行）。"""
     target = (st.session_state.get("jump_order_no") or "").strip()
@@ -480,20 +501,12 @@ def main():
     _np_set = set(st.session_state.get("orders_no_photo", []))
     _um_set = set(st.session_state.get("orders_unmatched", []))
     _p_set = set(orders)
+    st.session_state["current_order"] = order
     sel = st.selectbox("跳转到订单（全部订单）", all_orders, index=cur_all_idx,
                        format_func=lambda o, _p=_p_set, _np=_np_set, _um=_um_set, _u=_urls:
                        (f"{o}（{len(_u[o])}张）" if o in _p else
                         (f"{o}（无照片）" if o in _np else f"{o}（未匹配）")),
-                       key="order_jump")
-    if sel != order:
-        if sel in _p_set:
-            st.session_state.curr_index = orders.index(sel)
-            st.session_state.curr_photo = 0
-            st.rerun()
-        else:
-            st.toast(f"⚠️ 订单 {sel} 无照片或未匹配，无法处理")
-            st.session_state["order_jump"] = order  # 恢复为当前订单
-            st.rerun()
+                       key="order_jump", on_change=_jump_select_cb)
 
     # 订单号直达（可复制/粘贴订单号，存在则跳转，不存在则提示）
     jc = st.columns([3, 1])
