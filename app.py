@@ -434,7 +434,10 @@ def image_editor(order, ph, orig):
                 for _ti in range(len(st.session_state.get("order_urls", {}).get(str(order), []))):
                     st.session_state.pop(f"thumb_{order}_{_ti}", None)
                 st.toast("✅ 已应用裁剪")
-                # 不调用 st.rerun()：组件交互会自动触发 dialog 重渲染，保持对话框打开
+                # 关键：组件本次已按旧图渲染完，裁剪处理在其后才执行；
+                # 必须强制 rerun 让 dialog 重跑、组件刷新为裁剪后图片。
+                # dialog 打开期间 rerun 不会关闭（editor_open 仍有效，main 会重新调用本函数）。
+                st.rerun()
             if crop_res.get("canceled"):
                 st.toast("已取消裁剪")
     display = st.session_state["proc"][pf]
