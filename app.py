@@ -445,7 +445,7 @@ def image_editor(order, ph, orig):
     fcol1, fcol2 = st.columns(2)
     fcol1.text_input("文件名（不含扩展名）", value=f"{order}_{ph + 1}", key=f"fname_{pf}",
                      on_change=_fname_change_cb, args=(pf,))
-    fmt_ = fcol2.selectbox("保存格式", ["PNG", "JPG", "WEBP"], index=0, key=f"fmt_{pf}")
+    fmt_ = fcol2.selectbox("保存格式", ["PNG", "JPG", "WEBP"], index=1, key=f"fmt_{pf}")
     fname_s = (st.session_state.get(f"fname_val_{pf}") or st.session_state.get(f"fname_{pf}")
                or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
     ext = it.FORMAT_EXT.get(fmt_, "png")
