@@ -382,8 +382,8 @@ def image_editor(order, ph, orig):
     st.session_state.setdefault("rot_state", {})
     if pf not in st.session_state["proc"]:
         st.session_state["proc"][pf] = orig.copy()
-    st.markdown("点击图片区域后按 **X** 键进入裁剪 · 拖拽画选区 · "
-                "**Enter** 确认 / **Esc** 取消 / **方向键**微调 / 双击确认")
+    st.markdown("点击图片区域后按 **X** 键进入裁剪 · 拖拽画选区（单击选中）· "
+                "**双击**放大 · **Enter** 确认 / **Esc** 取消 / **方向键**微调")
     prev_rot = st.session_state.get("rot_state", {}).get(pf, 0)
     # 处理重置标志（在 slider 实例化前同步 drot，避免 widget 修改报错）
     if st.session_state.pop(f"reset_flag_{pf}", False):
