@@ -368,6 +368,9 @@ def image_editor(order, ph, orig):
                     "h": int(crop.get("h", 0) * ratio),
                 }
                 st.session_state["proc"][pf] = it.crop_image(cur, crop_full)
+                # 清除该订单缩略图缓存，确保主页面缩略图始终从原始文件显示原图
+                for _ti in range(len(st.session_state.get("order_urls", {}).get(str(order), []))):
+                    st.session_state.pop(f"thumb_{order}_{_ti}", None)
                 st.toast("✅ 已应用裁剪")
                 st.rerun()
             if crop_res.get("canceled"):
@@ -440,17 +443,6 @@ def main():
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                key="dl_merged")
         st.caption(f"📦 生成文件位置：{merged_path}")
-
-    per_file = stats.get("per_file") or []
-    if per_file:
-        with st.expander(f"各直供表文件处理统计（{len(per_file)} 个）"):
-            for pf in per_file:
-                st.write(f"📄 {pf['name']}：原始 {pf['total']} 行 → 保留（16位且有照片）{pf['kept']} 行")
-
-    with st.expander(f"未匹配订单（{len(st.session_state.orders_unmatched)} 个，不在直供表三方单号中）"):
-        st.write("、".join(map(str, st.session_state.orders_unmatched)) or "无")
-    with st.expander(f"匹配但无照片的订单（{len(st.session_state.orders_no_photo)} 个）"):
-        st.write("、".join(map(str, st.session_state.orders_no_photo)) or "无")
 
     orders = st.session_state.orders
     if not orders:
