@@ -206,8 +206,8 @@ def merge_direct_tables(file_list, order_set, output_path):
     }
 
 
-def mark_uploaded(xlsx_path, order_no):
-    """在单号表中把“订单编号 == order_no”行的“是否上传”列写入“是”。
+def mark_uploaded(xlsx_path, order_no, value="是"):
+    """在单号表中把“订单编号 == order_no”行的“是否上传”列写入 value（默认“是”）。
 
     返回写入的行数；找不到订单编号时返回 0（不保存）。
     """
@@ -233,7 +233,7 @@ def mark_uploaded(xlsx_path, order_no):
             if cv is None:
                 continue
             if str(cv).strip() == target:
-                ws.cell(row=r, column=up_col + 1).value = "是"
+                ws.cell(row=r, column=up_col + 1).value = value
                 count += 1
         if count:
             wb.save(xlsx_path)

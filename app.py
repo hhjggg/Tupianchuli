@@ -53,6 +53,7 @@ def _img_dataurl_small(img, max_w=900):
 def _init():
     st.session_state.setdefault("parse_done", False)
     st.session_state.setdefault("orders", [])
+    st.session_state.setdefault("orders_all", [])
     st.session_state.setdefault("order_urls", {})
     st.session_state.setdefault("orders_no_photo", [])
     st.session_state.setdefault("orders_unmatched", [])
@@ -60,6 +61,7 @@ def _init():
     st.session_state.setdefault("curr_index", 0)
     st.session_state.setdefault("curr_photo", 0)
     st.session_state.setdefault("marked", set())
+    st.session_state.setdefault("upload_status", {})
     st.session_state.setdefault("saved", {})
     st.session_state.setdefault("sheet1_path", None)
     st.session_state.setdefault("sheet2_path", None)
@@ -168,14 +170,14 @@ def do_parse(sheet1_path, done_files, raw_files):
     unmatched = [o for o in order_list if o not in seen]
     st.session_state.update(
         parse_done=True, sheet1_path=sheet1_path, merged_path=merged_path,
-        orders=with_photo, order_urls=photo_orders,
+        orders=with_photo, orders_all=order_list, order_urls=photo_orders,
         orders_no_photo=no_photo, orders_unmatched=unmatched,
         stats={"total": len(order_list), "with_photo": len(with_photo),
                "no_photo": len(no_photo), "unmatched": len(unmatched),
                "matched_rows": result["matched_rows"], "total_rows": result["total_rows"],
                "kept_rows": result["kept_rows"], "per_file": result["per_file"],
                "len_counter": result["len_counter"]},
-        curr_index=0, curr_photo=0, marked=set(), saved={},
+        curr_index=0, curr_photo=0, marked=set(), saved={}, upload_status={},
     )
     return True
 
@@ -273,16 +275,19 @@ def _jump_to_order():
     """按订单号直达（on_click 回调，在 widget 实例化前执行）。"""
     target = (st.session_state.get("jump_order_no") or "").strip()
     orders = st.session_state.get("orders", [])
+    orders_all = st.session_state.get("orders_all", orders)
     if target and target in orders:
         idx = orders.index(target)
         st.session_state.curr_index = idx
         st.session_state.curr_photo = 0
-        st.session_state["order_jump"] = idx
+        st.session_state["order_jump"] = target
         st.session_state.editor_open = None
         st.session_state[f"photo_sel_{target}"] = 0
         st.session_state["jump_msg"] = f"✅ 已跳转到订单 {target}"
+    elif target in orders_all:
+        st.session_state["jump_msg"] = f"⚠️ 订单 {target} 无照片或未匹配，无法处理"
     else:
-        st.session_state["jump_msg"] = f"⚠️ 订单号 {target or '（空）'} 不存在或不在可处理订单中"
+        st.session_state["jump_msg"] = f"⚠️ 订单号 {target or '（空）'} 不存在"
 
 
 def _fname_change_cb(pf):
@@ -377,7 +382,7 @@ def image_editor(order, ph, orig):
     fname_s = (st.session_state.get(f"fname_val_{pf}") or st.session_state.get(f"fname_{pf}")
                or f"{order}_{ph + 1}").strip() or f"{order}_{ph + 1}"
     ext = it.FORMAT_EXT.get(fmt_, "png")
-    b1, b2, b3 = st.columns(3)
+    b1, b2 = st.columns(2)
     if sys.platform == "win32":
         # 本地运行：直接保存到桌面（不弹系统窗口）
         if b1.button("💾 保存到桌面", type="primary", width="stretch"):
@@ -396,15 +401,7 @@ def image_editor(order, ph, orig):
             st.session_state.saved[(order, ph)] = f"{fname_s}.{ext}"
             st.toast(f"✅ 已下载：{fname_s}.{ext}")
             st.rerun()
-    if b2.button("↩️ 重置（旋转/裁剪）", width="stretch"):
-        # 清除处理副本，下次渲染自动从留底（原始图）重新复制
-        st.session_state["proc"].pop(pf, None)
-        st.session_state["rot_state"].pop(pf, None)
-        st.session_state["crop_reset"][pf] = st.session_state.get("crop_reset", {}).get(pf, 0) + 1
-        st.session_state.pop(f"ecrop_res_{order}_{ph}", None)
-        st.session_state[f"reset_flag_{pf}"] = True
-        st.rerun()
-    if b3.button("✖️ 关闭", width="stretch"):
+    if b2.button("✖️ 关闭", width="stretch"):
         st.session_state.editor_open = None
         st.rerun()
 
@@ -473,23 +470,36 @@ def main():
         nidx = max(0, idx - 1)
         st.session_state.curr_index = nidx
         st.session_state.curr_photo = 0
-        st.session_state["order_jump"] = nidx  # selectbox 在其后渲染，可安全同步
+        st.session_state["order_jump"] = orders[nidx]  # 同步下拉框（订单号）
         st.rerun()
     if hc[2].button("下一单 ›", key="next_order", width="stretch"):
         nidx = min(len(orders) - 1, idx + 1)
         st.session_state.curr_index = nidx
         st.session_state.curr_photo = 0
-        st.session_state["order_jump"] = nidx
+        st.session_state["order_jump"] = orders[nidx]
         st.rerun()
 
+    # 跳转到订单：显示全部订单（不管匹配/照片状态）
+    all_orders = st.session_state.get("orders_all") or orders
+    cur_all_idx = all_orders.index(order) if order in all_orders else 0
     _urls = st.session_state.order_urls
-    sel = st.selectbox("跳转到订单", range(len(orders)), index=idx,
-                       format_func=lambda i, _orders=orders, _urls=_urls: f"{_orders[i]}（{len(_urls[_orders[i]])}张照片）",
+    _np_set = set(st.session_state.get("orders_no_photo", []))
+    _um_set = set(st.session_state.get("orders_unmatched", []))
+    _p_set = set(orders)
+    sel = st.selectbox("跳转到订单（全部订单）", all_orders, index=cur_all_idx,
+                       format_func=lambda o, _p=_p_set, _np=_np_set, _um=_um_set, _u=_urls:
+                       (f"{o}（{len(_u[o])}张）" if o in _p else
+                        (f"{o}（无照片）" if o in _np else f"{o}（未匹配）")),
                        key="order_jump")
-    if sel != idx:
-        st.session_state.curr_index = sel
-        st.session_state.curr_photo = 0
-        st.rerun()
+    if sel != order:
+        if sel in _p_set:
+            st.session_state.curr_index = orders.index(sel)
+            st.session_state.curr_photo = 0
+            st.rerun()
+        else:
+            st.toast(f"⚠️ 订单 {sel} 无照片或未匹配，无法处理")
+            st.session_state["order_jump"] = order  # 恢复为当前订单
+            st.rerun()
 
     # 订单号直达（可复制/粘贴订单号，存在则跳转，不存在则提示）
     jc = st.columns([3, 1])
@@ -570,17 +580,21 @@ def main():
                 image_editor(order, e_idx, e_orig)
 
     st.divider()
-    mrow = st.columns([2, 3])
+    mrow = st.columns([2, 2, 1])
     marked = order in st.session_state.marked
-    mrow[0].markdown("**上传状态：** " + ("✅ 已标记为已上传" if marked else "⬜ 未标记"))
-    if mrow[1].button("📤 标记为已上传（单号表·是否上传=是）", width="stretch", disabled=marked):
+    marked_val = st.session_state.get("upload_status", {}).get(order, "")
+    status_text = ("✅ 已标记：" + marked_val) if marked else "⬜ 未标记"
+    mrow[0].markdown(f"**上传状态：** {status_text}")
+    up_status = mrow[1].selectbox("上传状态", ["是", "无上传通道"], key=f"up_status_{order}")
+    if mrow[2].button("📤 标记", width="stretch", disabled=marked):
         path1 = st.session_state.sheet1_path
         try:
             with st.spinner("正在写入单号表..."):
-                n = xr.mark_uploaded(path1, order)
+                n = xr.mark_uploaded(path1, order, up_status)
             if n:
                 st.session_state.marked.add(order)
-                st.success(f"已将订单 {order} 的“是否上传”列写入“是”（共更新 {n} 行）")
+                st.session_state.setdefault("upload_status", {})[order] = up_status
+                st.success(f"已将订单 {order} 的“是否上传”列写入“{up_status}”（共更新 {n} 行）")
                 if st.session_state.uploaded_mode:
                     with open(path1, "rb") as fp:
                         st.download_button("⬇️ 下载已更新的单号表", data=fp.read(),
