@@ -406,6 +406,7 @@ def image_editor(order, ph, orig):
             st.rerun()
     if b2.button("✖️ 关闭", width="stretch"):
         st.session_state.editor_open = None
+        st.session_state.pop(f"dialog_trigger_{pf}", None)
         st.rerun()
 
 
@@ -455,7 +456,8 @@ def main():
 
     st.divider()
     hc = st.columns([4, 1, 1])
-    hc[0].markdown(f"### 📋 订单 {idx + 1} / {len(orders)}")
+    all_orders = st.session_state.get("orders_all") or orders
+    hc[0].markdown(f"### 📋 订单 {idx + 1} / {len(all_orders)}（全部订单数）")
     hc[0].caption("当前订单号（可复制）：")
     hc[0].code(str(order))
     if hc[1].button("‹ 上一单", key="prev_order", width="stretch"):
@@ -530,6 +532,7 @@ def main():
                     if ts is not None and ts != st.session_state.get(last_key):
                         st.session_state[last_key] = ts
                         st.session_state.editor_open = f"{order}|{i}"
+                        st.session_state[f"dialog_trigger_{order}|{i}"] = True  # 一次性打开标志
                         st.session_state.curr_photo = i
                         st.session_state[f"photo_sel_{order}"] = i  # 同步照片选择，避免残留覆盖
                         # 打开编辑页时清除处理副本，确保每次从原始留底重新开始
@@ -561,7 +564,7 @@ def main():
     st.subheader("🛠️ 图片处理")
     st.caption("**双击上方照片缩略图**进入二级编辑（旋转 + 微信截图式裁剪 + 命名 + 下载）")
 
-    # 二级编辑页面（双击照片缩略图后弹出）
+    # 二级编辑页面（双击照片缩略图后弹出，一次性触发）
     edit_key = st.session_state.get("editor_open")
     if edit_key:
         e_order = e_idx = None
@@ -571,9 +574,14 @@ def main():
         except (ValueError, AttributeError):
             pass
         if e_order == str(order) and e_idx is not None and 0 <= e_idx < len(urls):
-            e_orig = get_original(order, e_idx)
-            if e_orig is not None:
-                image_editor(order, e_idx, e_orig)
+            if st.session_state.pop(f"dialog_trigger_{edit_key}", False):
+                # 双击触发的打开：真正打开 dialog
+                e_orig = get_original(order, e_idx)
+                if e_orig is not None:
+                    image_editor(order, e_idx, e_orig)
+            else:
+                # 无触发标志：dialog 已被关闭（如右上角 X），清除残留，避免主页面交互重新弹出
+                st.session_state.pop("editor_open", None)
 
     st.divider()
     mrow = st.columns([2, 2, 1])
