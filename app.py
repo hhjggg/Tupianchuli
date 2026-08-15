@@ -60,6 +60,7 @@ def _init():
     st.session_state.setdefault("stats", {})
     st.session_state.setdefault("curr_index", 0)
     st.session_state.setdefault("curr_photo", 0)
+    st.session_state.setdefault("view_order", None)
     st.session_state.setdefault("marked", set())
     st.session_state.setdefault("upload_status", {})
     st.session_state.setdefault("saved", {})
@@ -177,7 +178,7 @@ def do_parse(sheet1_path, done_files, raw_files):
                "matched_rows": result["matched_rows"], "total_rows": result["total_rows"],
                "kept_rows": result["kept_rows"], "per_file": result["per_file"],
                "len_counter": result["len_counter"]},
-        curr_index=0, curr_photo=0, marked=set(), saved={}, upload_status={},
+        curr_index=0, curr_photo=0, view_order=None, marked=set(), saved={}, upload_status={},
     )
     return True
 
@@ -271,6 +272,35 @@ def _next_order_cb(idx, n):
     st.session_state["order_jump"] = nidx
 
 
+def render_upload_status(order):
+    """渲染“上传状态”标记区（有照片/无照片订单通用）。"""
+    st.divider()
+    mrow = st.columns([2, 2, 1])
+    marked = order in st.session_state.get("marked", set())
+    marked_val = st.session_state.get("upload_status", {}).get(order, "")
+    status_text = ("✅ 已标记：" + marked_val) if marked else "⬜ 未标记"
+    mrow[0].markdown(f"**上传状态：** {status_text}")
+    up_status = mrow[1].selectbox("上传状态", ["是", "无上传通道"], key=f"up_status_{order}")
+    if mrow[2].button("📤 标记", width="stretch", disabled=marked):
+        path1 = st.session_state.sheet1_path
+        try:
+            with st.spinner("正在写入单号表..."):
+                n = xr.mark_uploaded(path1, order, up_status)
+            if n:
+                st.session_state.setdefault("marked", set()).add(order)
+                st.session_state.setdefault("upload_status", {})[order] = up_status
+                st.success(f"已将订单 {order} 的“是否上传”列写入“{up_status}”（共更新 {n} 行）")
+                if st.session_state.uploaded_mode:
+                    with open(path1, "rb") as fp:
+                        st.download_button("⬇️ 下载已更新的单号表", data=fp.read(),
+                                           file_name=os.path.basename(path1),
+                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            else:
+                st.warning(f"在单号表中未找到订单编号 {order}，未写入")
+        except Exception as e:
+            st.error(f"写入失败：{e}")
+
+
 def _jump_select_cb():
     """跳转到订单下拉框 on_change 回调（在 widget 实例化前执行，可安全设置状态）。"""
     sel = st.session_state.get("order_jump")
@@ -281,15 +311,17 @@ def _jump_select_cb():
         st.session_state.curr_index = idx
         st.session_state.curr_photo = 0
         st.session_state.editor_open = None
+        st.session_state["view_order"] = None
         st.session_state[f"photo_sel_{sel}"] = 0
     else:
         orders_all = st.session_state.get("orders_all", orders)
         if sel in orders_all:
-            st.session_state["jump_msg"] = f"⚠️ 订单 {sel} 无照片或未匹配，无法处理"
+            st.session_state["view_order"] = sel  # 无照片详情视图（可标记上传）
+            st.session_state.editor_open = None
         else:
             st.session_state["jump_msg"] = f"⚠️ 订单号 {sel or '（空）'} 不存在"
-        if cur:
-            st.session_state["order_jump"] = cur  # 恢复下拉框为当前订单
+            if cur:
+                st.session_state["order_jump"] = cur  # 恢复下拉框为当前订单
 
 
 def _jump_to_order():
@@ -303,10 +335,13 @@ def _jump_to_order():
         st.session_state.curr_photo = 0
         st.session_state["order_jump"] = target
         st.session_state.editor_open = None
+        st.session_state["view_order"] = None
         st.session_state[f"photo_sel_{target}"] = 0
         st.session_state["jump_msg"] = f"✅ 已跳转到订单 {target}"
     elif target in orders_all:
-        st.session_state["jump_msg"] = f"⚠️ 订单 {target} 无照片或未匹配，无法处理"
+        st.session_state["view_order"] = target  # 无照片详情视图（可标记上传）
+        st.session_state.editor_open = None
+        st.session_state["jump_msg"] = f"📄 已查看订单 {target}（无照片，可标记上传状态）"
     else:
         st.session_state["jump_msg"] = f"⚠️ 订单号 {target or '（空）'} 不存在"
 
@@ -467,6 +502,18 @@ def main():
         st.caption(f"📦 生成文件位置：{merged_path}")
 
     orders = st.session_state.orders
+    # 无照片/未匹配订单详情视图（仅标记上传状态）
+    view_order = st.session_state.get("view_order")
+    if view_order and view_order not in orders:
+        st.subheader(f"📄 订单 {view_order}")
+        st.info("该订单无照片或未匹配，无法进行图片处理，仅可标记上传状态。")
+        render_upload_status(view_order)
+        if st.button("← 返回可处理订单", width="stretch"):
+            st.session_state["view_order"] = None
+            if orders:
+                st.session_state["order_jump"] = orders[min(st.session_state.get("curr_index", 0), len(orders) - 1)]
+            st.rerun()
+        return
     if not orders:
         st.warning("没有找到任何匹配且有照片的订单，请检查两张数据表是否选择正确。")
         return
@@ -478,19 +525,22 @@ def main():
     st.divider()
     hc = st.columns([4, 1, 1])
     all_orders = st.session_state.get("orders_all") or orders
-    hc[0].markdown(f"### 📋 订单 {idx + 1} / {len(all_orders)}（全部订单数）")
+    cur_all_pos = all_orders.index(order) + 1 if order in all_orders else idx + 1
+    hc[0].markdown(f"### 📋 订单 {cur_all_pos} / {len(all_orders)}")
     hc[0].caption("当前订单号（可复制）：")
     hc[0].code(str(order))
     if hc[1].button("‹ 上一单", key="prev_order", width="stretch"):
         nidx = max(0, idx - 1)
         st.session_state.curr_index = nidx
         st.session_state.curr_photo = 0
+        st.session_state["view_order"] = None
         st.session_state["order_jump"] = orders[nidx]  # 同步下拉框（订单号）
         st.rerun()
     if hc[2].button("下一单 ›", key="next_order", width="stretch"):
         nidx = min(len(orders) - 1, idx + 1)
         st.session_state.curr_index = nidx
         st.session_state.curr_photo = 0
+        st.session_state["view_order"] = None
         st.session_state["order_jump"] = orders[nidx]
         st.rerun()
 
@@ -596,31 +646,7 @@ def main():
                 # 无触发标志：dialog 已被关闭（如右上角 X），清除残留，避免主页面交互重新弹出
                 st.session_state.pop("editor_open", None)
 
-    st.divider()
-    mrow = st.columns([2, 2, 1])
-    marked = order in st.session_state.marked
-    marked_val = st.session_state.get("upload_status", {}).get(order, "")
-    status_text = ("✅ 已标记：" + marked_val) if marked else "⬜ 未标记"
-    mrow[0].markdown(f"**上传状态：** {status_text}")
-    up_status = mrow[1].selectbox("上传状态", ["是", "无上传通道"], key=f"up_status_{order}")
-    if mrow[2].button("📤 标记", width="stretch", disabled=marked):
-        path1 = st.session_state.sheet1_path
-        try:
-            with st.spinner("正在写入单号表..."):
-                n = xr.mark_uploaded(path1, order, up_status)
-            if n:
-                st.session_state.marked.add(order)
-                st.session_state.setdefault("upload_status", {})[order] = up_status
-                st.success(f"已将订单 {order} 的“是否上传”列写入“{up_status}”（共更新 {n} 行）")
-                if st.session_state.uploaded_mode:
-                    with open(path1, "rb") as fp:
-                        st.download_button("⬇️ 下载已更新的单号表", data=fp.read(),
-                                           file_name=os.path.basename(path1),
-                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            else:
-                st.warning(f"在单号表中未找到订单编号 {order}，未写入")
-        except Exception as e:
-            st.error(f"写入失败：{e}")
+    render_upload_status(order)
 
 
 if __name__ == "__main__":
