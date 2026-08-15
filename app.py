@@ -357,7 +357,7 @@ def _fname_change_cb(pf):
     st.session_state[f"fname_val_{pf}"] = st.session_state.get(f"fname_{pf}", "").strip()
 
 
-@st.dialog("🖼️ 图片编辑（二级页面）", width="large")
+@st.dialog("🖼️ 图片编辑（二级页面）", width="large", dismissible=False)
 def image_editor(order, ph, orig):
     """二级编辑页面：所见即所得 —— 旋转/裁剪直接作用并显示在同一张图上。"""
     # 从 session_state 解析最新编辑目标（dialog fragment 重跑时传入参数可能为旧值）
@@ -600,7 +600,6 @@ def main():
                     if ts is not None and ts != st.session_state.get(last_key):
                         st.session_state[last_key] = ts
                         st.session_state.editor_open = f"{order}|{i}"
-                        st.session_state[f"dialog_trigger_{order}|{i}"] = True  # 一次性打开标志
                         st.session_state.curr_photo = i
                         st.session_state[f"photo_sel_{order}"] = i  # 同步照片选择，避免残留覆盖
                         # 打开编辑页时清除处理副本，确保每次从原始留底重新开始
@@ -632,7 +631,7 @@ def main():
     st.subheader("🛠️ 图片处理")
     st.caption("**双击上方照片缩略图**进入二级编辑（旋转 + 微信截图式裁剪 + 命名 + 下载）")
 
-    # 二级编辑页面（双击照片缩略图后弹出，一次性触发）
+    # 二级编辑页面（双击照片缩略图后弹出；dismissible=False，仅用「✖️ 关闭」退出）
     edit_key = st.session_state.get("editor_open")
     if edit_key:
         e_order = e_idx = None
@@ -642,14 +641,9 @@ def main():
         except (ValueError, AttributeError):
             pass
         if e_order == str(order) and e_idx is not None and 0 <= e_idx < len(urls):
-            if st.session_state.pop(f"dialog_trigger_{edit_key}", False):
-                # 双击触发的打开：真正打开 dialog
-                e_orig = get_original(order, e_idx)
-                if e_orig is not None:
-                    image_editor(order, e_idx, e_orig)
-            else:
-                # 无触发标志：dialog 已被关闭（如右上角 X），清除残留，避免主页面交互重新弹出
-                st.session_state.pop("editor_open", None)
+            e_orig = get_original(order, e_idx)
+            if e_orig is not None:
+                image_editor(order, e_idx, e_orig)
 
     render_upload_status(order)
 
