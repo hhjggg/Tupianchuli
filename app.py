@@ -434,10 +434,9 @@ def image_editor(order, ph, orig):
                 for _ti in range(len(st.session_state.get("order_urls", {}).get(str(order), []))):
                     st.session_state.pop(f"thumb_{order}_{_ti}", None)
                 st.toast("✅ 已应用裁剪")
-                st.rerun()
+                # 不调用 st.rerun()：组件交互会自动触发 dialog 重渲染，保持对话框打开
             if crop_res.get("canceled"):
                 st.toast("已取消裁剪")
-                st.rerun()
     display = st.session_state["proc"][pf]
     # 命名 + 格式
     fcol1, fcol2 = st.columns(2)
